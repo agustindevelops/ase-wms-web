@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #fffcf9;
+  --color-dark: #222222;
+
+  --color-brown-50: #f9f7f4;
+  --color-brown-100: #f0eae4;
+  --color-brown-200: #e2d6c7;
+  --color-brown-300: #d2c1aa;
+  --color-brown-400: #c0aa91;
+  --color-brown-500: #a89583;
+  --color-brown-600: #8f7d6e;
+  --color-brown-700: #766659;
+  --color-brown-800: #5e5045;
+  --color-brown-900: #473b33;
+
+  --color-peach-50: #fff3f2;
+  --color-peach-100: #ffe2df;
+  --color-peach-200: #ffcfc8;
+  --color-peach-300: #ffb0a1;
+  --color-peach-400: #ff9278;
+  --color-peach-500: #ff785e;
+  --color-peach-600: #f25a40;
+  --color-peach-700: #d44932;
+  --color-peach-800: #a93723;
+  --color-peach-900: #7a2415;
+
+  --color-green-50: #f4f7f1;
+  --color-green-100: #e3eade;
+  --color-green-200: #d0ddc8;
+  --color-green-300: #bccdb1;
+  --color-green-400: #9db18f;
+  --color-green-500: #7e9570;
+  --color-green-600: #677a5b;
+  --color-green-700: #56674a;
+  --color-green-800: #445239;
+  --color-green-900: #333e2a;
+
+  --font-nickainley: var(--font-nickainley), ui-serif, Georgia, serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --background: #fffcf9;
+  --foreground: #5e5045;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.7s ease-out both;
+}
+
+.animate-fade-up-delay {
+  animation: fade-up 0.7s ease-out 0.15s both;
+}
+
+.animate-soft-pulse {
+  animation: soft-pulse 4s ease-in-out infinite;
+}
+
+/*
+  Logo loader: wind up (negative rotate), ease into a full spin,
+  ease out into upright, then pause briefly before repeating.
+*/
+@keyframes logo-gear-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  /* gear up — pull back */
+  10% {
+    transform: rotate(-22deg);
+  }
+  /* tiny hold before launch */
+  16% {
+    transform: rotate(-22deg);
+  }
+  /* one full turn from the wound position (-22 → 338 = 360°) */
+  78% {
+    transform: rotate(338deg);
+  }
+  /* settle facing upright */
+  86% {
+    transform: rotate(360deg);
+  }
+  /* pause when oriented correctly */
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-logo-spin {
+  animation: logo-gear-spin 2.6s ease-in-out infinite;
+  transform-origin: center center;
+  will-change: transform;
+}
