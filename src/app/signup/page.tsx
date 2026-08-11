@@ -1,11 +1,12 @@
 "use client";
 
+import { allowPublicSignup } from "@/constant/env";
 import { isFirebaseConfigured } from "@/firebase/config";
 import signUp from "@/firebase/auth/signup";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 export default function SignUpPage() {
   const [email, setEmail] = useState("");
@@ -14,6 +15,16 @@ export default function SignUpPage() {
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
   const configured = isFirebaseConfigured();
+
+  useEffect(() => {
+    if (!allowPublicSignup) {
+      router.replace("/signin");
+    }
+  }, [router]);
+
+  if (!allowPublicSignup) {
+    return null;
+  }
 
   const handleForm = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

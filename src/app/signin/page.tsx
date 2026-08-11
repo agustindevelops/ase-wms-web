@@ -1,5 +1,6 @@
 "use client";
 
+import { allowPublicSignup } from "@/constant/env";
 import { isFirebaseConfigured } from "@/firebase/config";
 import signIn from "@/firebase/auth/signIn";
 import Image from "next/image";
@@ -134,15 +135,18 @@ export default function SignInPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-brown-600">
-          Need an account?{" "}
-          <Link
-            href="/signup"
-            className="font-medium text-green-700 underline-offset-2 hover:underline"
-          >
-            Create one
-          </Link>
-        </p>
+        {/* Keep for Staff / employee onboarding later */}
+        {allowPublicSignup ? (
+          <p className="mt-6 text-center text-sm text-brown-600">
+            Need an account?{" "}
+            <Link
+              href="/signup"
+              className="font-medium text-green-700 underline-offset-2 hover:underline"
+            >
+              Create one
+            </Link>
+          </p>
+        ) : null}
       </div>
     </main>
   );

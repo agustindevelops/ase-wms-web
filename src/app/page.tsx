@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
+import { allowPublicSignup } from "@/constant/env";
 import type { User } from "firebase/auth";
 import Image from "next/image";
 import Link from "next/link";
@@ -58,12 +59,15 @@ export default function Home() {
           >
             Sign In
           </Link>
-          <Link
-            href="/signup"
-            className="rounded-full border-2 border-brown-300 bg-cream px-8 py-3 text-lg font-medium text-brown-700 transition duration-300 hover:border-brown-500 hover:bg-brown-50"
-          >
-            Create Admin Account
-          </Link>
+          {/* Keep for Staff / employee onboarding later */}
+          {allowPublicSignup ? (
+            <Link
+              href="/signup"
+              className="rounded-full border-2 border-brown-300 bg-cream px-8 py-3 text-lg font-medium text-brown-700 transition duration-300 hover:border-brown-500 hover:bg-brown-50"
+            >
+              Create Admin Account
+            </Link>
+          ) : null}
         </div>
 
         <a

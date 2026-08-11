@@ -1,0 +1,30 @@
+// ASE WMS — base schema (grows from ERD:
+// https://agustindevelops.atlassian.net/wiki/spaces/ASE/pages/165216257)
+// Identity: Firebase Auth uid → User.firebaseUid
+// Domain data lives here; Prisma client + DATABASE_URL are server-only.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// MVP role. Staff-limited access is deferred (ERD / scope).
+enum UserRole {
+  ADMIN
+}
+
+/// App user mirrored from Firebase Auth after Bearer verification.
+model User {
+  id          String   @id @default(cuid())
+  firebaseUid String   @unique
+  email       String
+  role        UserRole @default(ADMIN)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([email])
+}

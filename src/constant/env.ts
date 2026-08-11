@@ -18,3 +18,9 @@ export const publicAseWmsApiUrl =
 export const marketingSiteUrl =
   process.env.NEXT_PUBLIC_MARKETING_SITE_URL ??
   "https://aniahsocialevents.com";
+
+/**
+ * Public self-serve signup is off for MVP (pre-provisioned Admin accounts only).
+ * Flip to true when employees need Create Account (Staff flow).
+ */
+export const allowPublicSignup = false;

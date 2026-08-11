@@ -40,7 +40,8 @@ Customer storefront, accounts, payments, delivery routing, advanced analytics, a
 | --- | --- |
 | Framework | Next.js 15 (App Router) |
 | UI | React 19 + Tailwind CSS 4 |
-| Auth / data | Firebase Auth + Firestore |
+| Auth | Firebase Auth (client) + Firebase Admin (Bearer verify on API) |
+| Database | Prisma 7 + PostgreSQL (server-only) |
 | Mobile companion | `ase-wms-app` (Expo barcode / label printing) |
 
 Scaffolded from the [Next.js Firebase starter](https://github.com/milliorn/nextjs-firebase-starter); branding aligned with [aniahsocialevents.com](https://aniahsocialevents.com/).
@@ -48,24 +49,61 @@ Scaffolded from the [Next.js Firebase starter](https://github.com/milliorn/nextj
 ## Getting started
 
 ```bash
-cp .env.example .env.local
-# fill Firebase + optional API keys
+cp .env.template .env.local
+# fill DATABASE_URL, NEXT_PUBLIC_FIREBASE_*, FIREBASE_ADMIN_*
 npm install
+npx prisma migrate dev --name init_user
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). Unauthenticated users land on the branded admin portal; signed-in users go to `/admin`.
 
-## Firebase + ase-wms-app tokens
+## Firebase Bearer + Prisma (ASE-9)
 
-Use the **same Firebase project** for this web admin and `ase-wms-app`.
+Use the **same Firebase project** for this web admin and `ase-wms-app`. No NextAuth; APIs expect `Authorization: Bearer <Firebase ID token>`.
 
-- Client `NEXT_PUBLIC_FIREBASE_*` values can be shared across apps (they are public by design).
-- Authenticated calls should send the Firebase **ID token** (`Authorization: Bearer <idToken>`). That is the cross-app credential — you do not need a separate opaque cross-reference token for Auth.
-- Server routes that trust the mobile app should verify ID tokens with Firebase Admin (`FIREBASE_ADMIN_*` in `.env.example`).
-- Optional static `ASE_WMS_API_KEY` is only for machine-to-machine fallbacks; prefer ID tokens.
+### Env checklist
 
-See `.env.example` for the full template.
+See [`.env.template`](./.env.template). You need:
+
+| Variable | Where to get it |
+| --- | --- |
+| `DATABASE_URL` | Prisma Console → Connect → **direct TCP** `postgres://…` (not `prisma+postgres://`) |
+| `NEXT_PUBLIC_FIREBASE_*` | Firebase Console → Project settings → Web app |
+| `FIREBASE_ADMIN_PROJECT_ID` / `CLIENT_EMAIL` / `PRIVATE_KEY` | Firebase Console → Service accounts → Generate private key |
+
+`DATABASE_URL` and `FIREBASE_ADMIN_*` are **server-only** — never prefix them with `NEXT_PUBLIC_`.
+
+### Pattern for secured API routes
+
+```ts
+import {
+  isAuthFailure,
+  requireFirebaseUser, // token only — no Prisma
+  requirePrismaUser,   // token first, then User upsert
+} from "@/lib/auth/requireAuth";
+import { prisma } from "@/lib/db/prisma";
+
+export async function GET(request: Request) {
+  const auth = await requireFirebaseUser(request);
+  if (isAuthFailure(auth)) return auth.response; // 401, no DB
+
+  // Only after verify:
+  const rows = await prisma.$queryRaw`SELECT 1`;
+  // Or: const { user } = await requirePrismaUser(request);
+}
+```
+
+Client helpers: `wmsFetch("/api/…", { idToken })` (same origin) or `aseApiFetch` for a remote API base URL.
+
+### Smoke endpoints
+
+| Route | Behavior |
+| --- | --- |
+| `GET /api/health` | Bearer required → `SELECT 1` |
+| `GET /api/me` | Bearer required → upsert `User` by `firebaseUid` |
+
+From `/admin`, use **Run authenticated smoke** after env + migrate are set.
 
 ## Branding
 
@@ -80,20 +118,28 @@ Colors, Nickainley display font, logos, and floral imagery follow the marketing 
 | Command | Description |
 | --- | --- |
 | `npm run dev` | Development server |
-| `npm run build` | Production build |
+| `npm run build` | `prisma generate` + production build |
 | `npm run start` | Production server |
 | `npm run lint` | ESLint |
+| `npm run db:migrate` | Create/apply migrations |
+| `npm run db:push` | Push schema without migration files |
+| `npm run db:studio` | Prisma Studio |
 
 ## Project layout
 
 ```
+prisma/          # schema + migrations
+prisma.config.ts # DATABASE_URL for Prisma CLI
 src/
-  app/           # routes: /, /signin, /signup, /admin
+  app/           # routes: /, /signin, /signup, /admin, /api/*
+  app/api/       # health + me (Bearer → Prisma)
   components/    # shared UI (e.g. LoadingOverlay)
   context/       # AuthContextProvider
-  firebase/      # Auth + Firestore helpers
-  constant/      # env helpers
-  lib/api/       # aseApiFetch (Bearer ID token)
+  firebase/      # client Auth + Firestore helpers
+  lib/auth/      # Firebase Admin verify + requirePrismaUser
+  lib/db/        # Prisma singleton (server-only)
+  lib/api/       # wmsFetch / aseApiFetch (Bearer ID token)
+  generated/     # Prisma client (gitignored; generated on install)
 public/
   images/        # ASE logos + floral background
   fonts/         # Nickainley
