@@ -90,6 +90,12 @@ export default function OrdersPage() {
             All event orders. Filter by status if needed.
           </p>
         </div>
+        <Link
+          href="/admin/orders/new"
+          className="rounded-full bg-green-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700"
+        >
+          Create order
+        </Link>
       </div>
 
       <div className="mt-6 flex flex-wrap gap-2">

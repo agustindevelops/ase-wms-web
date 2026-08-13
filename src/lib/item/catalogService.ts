@@ -432,17 +432,20 @@ export async function bindItemToLocationUnit(
   });
 }
 
-export type WarehouseItemLocationFilter = "none" | "set";
+export type WarehouseItemLocationFilter = "none" | "set" | "all";
 
 export function parseWarehouseItemLocationFilter(
   value: string | null,
 ): WarehouseItemLocationFilter {
+  if (value === null || value === "" || value === "all") {
+    return "all";
+  }
   if (value === "none" || value === "set") {
     return value;
   }
   throw new CatalogServiceError(
     "Bad Request",
-    "location query must be none or set",
+    "location query must be none, set, or all",
   );
 }
 
@@ -453,7 +456,11 @@ export async function listWarehouseItems(
   return prisma.item.findMany({
     where: {
       warehouseId,
-      locationUnitId: location === "none" ? null : { not: null },
+      ...(location === "none"
+        ? { locationUnitId: null }
+        : location === "set"
+          ? { locationUnitId: { not: null } }
+          : {}),
     },
     include: itemInclude,
     orderBy: { name: "asc" },

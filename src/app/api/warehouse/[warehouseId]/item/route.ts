@@ -10,8 +10,8 @@ import { toCatalogErrorResponse } from "@/lib/item/errors";
 export const runtime = "nodejs";
 
 /**
- * GET /api/warehouse/{warehouseId}/item?location=none|set
- * List catalog items with or without a location attachment.
+ * GET /api/warehouse/{warehouseId}/item?location=none|set|all
+ * List catalog items. Omit location (or pass all) for every item in the warehouse.
  */
 export async function GET(
   request: Request,

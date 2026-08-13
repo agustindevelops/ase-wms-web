@@ -84,7 +84,7 @@ export default function AdminPage() {
         >
           <h2 className="font-nickainley text-2xl text-brown-800">Orders</h2>
           <p className="mt-2 text-sm text-brown-600">
-            View event orders and their status.
+            View orders, create an event order, and add items.
           </p>
         </Link>
         <div className="rounded-2xl border border-brown-200 bg-white/60 p-6">

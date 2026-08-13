@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 /**
  * GET /api/lookup/order-statuses
- * Seeded ORDER_STATUS list for the orders list filter.
+ * Seeded ORDER_STATUS list for filters and the order detail picker.
  */
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);
