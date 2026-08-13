@@ -23,8 +23,18 @@ function createPrismaClient() {
   return new PrismaClient({ adapter });
 }
 
-/** Lazy so importing route modules does not require DATABASE_URL at build time. */
+/**
+ * Lazy so importing route modules does not require DATABASE_URL at build time.
+ * Recreates the singleton when the generated client gained new models (e.g. after
+ * migrate + generate while `next dev` kept an old PrismaClient in globalThis).
+ */
 export function getPrisma(): PrismaClient {
+  const existing = globalForPrisma.prismaClient;
+  if (existing && typeof (existing as { itemCategory?: unknown }).itemCategory === "undefined") {
+    void existing.$disconnect().catch(() => undefined);
+    globalForPrisma.prismaClient = undefined;
+  }
+
   if (!globalForPrisma.prismaClient) {
     globalForPrisma.prismaClient = createPrismaClient();
   }

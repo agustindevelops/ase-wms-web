@@ -56,3 +56,42 @@ export const CHILD_LOCATION_UNIT_TYPE_CODE: Record<string, string> = {
   AISLE: "RACK",
   RACK: "SHELF",
 };
+
+/** ITEM_CATEGORY seed — event-rental starters for catalog picker. */
+export const ITEM_CATEGORY_IDS = {
+  PLATE: "ic_plate",
+  CUP: "ic_cup",
+  FLATWARE: "ic_flatware",
+  GLASSWARE: "ic_glassware",
+  CHAIR: "ic_chair",
+  TABLE: "ic_table",
+  LINEN: "ic_linen",
+  DECOR: "ic_decor",
+  LIGHTING: "ic_lighting",
+  SERVING: "ic_serving",
+  OTHER: "ic_other",
+} as const;
+
+export const ITEM_CATEGORIES = [
+  { id: ITEM_CATEGORY_IDS.PLATE, code: "PLATE", name: "Plate" },
+  { id: ITEM_CATEGORY_IDS.CUP, code: "CUP", name: "Cup" },
+  { id: ITEM_CATEGORY_IDS.FLATWARE, code: "FLATWARE", name: "Flatware" },
+  { id: ITEM_CATEGORY_IDS.GLASSWARE, code: "GLASSWARE", name: "Glassware" },
+  { id: ITEM_CATEGORY_IDS.CHAIR, code: "CHAIR", name: "Chair" },
+  { id: ITEM_CATEGORY_IDS.TABLE, code: "TABLE", name: "Table" },
+  { id: ITEM_CATEGORY_IDS.LINEN, code: "LINEN", name: "Linen" },
+  { id: ITEM_CATEGORY_IDS.DECOR, code: "DECOR", name: "Decor" },
+  { id: ITEM_CATEGORY_IDS.LIGHTING, code: "LIGHTING", name: "Lighting" },
+  { id: ITEM_CATEGORY_IDS.SERVING, code: "SERVING", name: "Serving" },
+  { id: ITEM_CATEGORY_IDS.OTHER, code: "OTHER", name: "Other" },
+] as const;
+
+/** Item.material picker values for catalog (not a DB lookup table). */
+export const ITEM_MATERIALS = [
+  { code: "PLASTIC", name: "Plastic" },
+  { code: "CERAMIC", name: "Ceramic" },
+  { code: "GLASS", name: "Glass" },
+  { code: "METAL", name: "Metal" },
+  { code: "FABRIC", name: "Fabric" },
+  { code: "WOOD", name: "Wood" },
+] as const;

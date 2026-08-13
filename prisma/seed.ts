@@ -5,6 +5,7 @@ import {
   ADMIN_ROLE_CODE,
   ADMIN_ROLE_DESCRIPTION,
   ADMIN_ROLE_NAME,
+  ITEM_CATEGORIES,
   LOCATION_UNIT_TYPES,
   QR_CODE_TYPES,
 } from "../src/lib/db/defaults";
@@ -48,6 +49,14 @@ async function main() {
       where: { code: type.code },
       create: type,
       update: { name: type.name },
+    });
+  }
+
+  for (const category of ITEM_CATEGORIES) {
+    await prisma.itemCategory.upsert({
+      where: { code: category.code },
+      create: category,
+      update: { name: category.name },
     });
   }
 }
