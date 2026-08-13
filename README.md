@@ -71,8 +71,11 @@ See [`.env.template`](./.env.template). You need:
 | `DATABASE_URL` | Prisma Console → Connect → **direct TCP** `postgres://…` (not `prisma+postgres://`) |
 | `NEXT_PUBLIC_FIREBASE_*` | Firebase Console → Project settings → Web app |
 | `FIREBASE_ADMIN_PROJECT_ID` / `CLIENT_EMAIL` / `PRIVATE_KEY` | Firebase Console → Service accounts → Generate private key |
+| `S3_API_URL` | Cloudflare R2 S3 API URL: `https://<accountId>.r2.cloudflarestorage.com/<bucket>` |
+| `CLOUDFLARE_ACCESS_KEY_ID` | Cloudflare → R2 → Manage API Tokens → Access Key ID |
+| `CLOUDFLARE_ACCESS_KEY` | Same token screen → Secret Access Key (shown once) |
 
-`DATABASE_URL` and `FIREBASE_ADMIN_*` are **server-only** — never prefix them with `NEXT_PUBLIC_`.
+`DATABASE_URL`, `FIREBASE_ADMIN_*`, and Cloudflare R2 keys are **server-only** — never prefix them with `NEXT_PUBLIC_`.
 
 ### Pattern for secured API routes
 
@@ -104,6 +107,22 @@ Client helpers: `wmsFetch("/api/…", { idToken })` (same origin) or `aseApiFetc
 | --- | --- |
 | `GET /api/health` | Bearer required → `SELECT 1` |
 | `GET /api/me` | Bearer required → upsert `User`, default warehouse, ADMIN membership |
+| `POST /api/img/upload` | Bearer → create `File` + presigned PUT (`{userId}/inventory/{fileId}`) |
+| `POST /api/img/verify` | Bearer → HEAD/magic checks → `uploaded` + File row (fail deletes object+row) |
+| `GET /api/test/img?file_id=` | Bearer → owner-scoped File + signed/public read URL |
+| `DELETE /api/img/{id}` | Bearer → owner-scoped delete |
+
+### Cloudflare R2 image uploads (ASE-11)
+
+Only three env vars:
+
+| Variable | Role |
+| --- | --- |
+| `S3_API_URL` | Bucket address (`endpoint` + `/bucket`) |
+| `CLOUDFLARE_ACCESS_KEY_ID` | R2 S3 access key id |
+| `CLOUDFLARE_ACCESS_KEY` | R2 S3 secret access key |
+
+Do **not** use `CLOUDFLARE_API_TOKEN` for uploads — that is a different Cloudflare credential. Client apps never get R2 keys; they only receive a short-lived `upload_url` from `POST /api/img/upload`.
 
 From `/admin`, use **Run authenticated smoke** after env + migrate are set.
 
