@@ -14,6 +14,7 @@ import {
   SessionLookupError,
 } from "@/lib/auth/sessionService";
 import { getWmsClaims, syncWmsClaims } from "@/lib/auth/wmsClaims";
+import { ADMIN_ROLE_CODE } from "@/lib/db/defaults";
 
 export type AuthSuccess = {
   decoded: DecodedIdToken;
@@ -120,4 +121,31 @@ export async function requirePrismaUser(
     }
     throw error;
   }
+}
+
+/**
+ * Admin-only gate for routes that are not warehouse-scoped (e.g. /api/order).
+ * MVP: the user's first warehouse membership must be ADMIN.
+ */
+export async function requireAdmin(
+  request: Request,
+): Promise<PrismaAuthContext | AuthFailure> {
+  const auth = await requirePrismaUser(request);
+  if (isAuthFailure(auth)) {
+    return auth;
+  }
+
+  if (auth.role.code !== ADMIN_ROLE_CODE) {
+    return {
+      response: NextResponse.json(
+        {
+          error: "Forbidden",
+          message: "Admin membership required",
+        },
+        { status: 403 },
+      ),
+    };
+  }
+
+  return auth;
 }

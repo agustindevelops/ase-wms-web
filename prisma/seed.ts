@@ -7,6 +7,7 @@ import {
   ADMIN_ROLE_NAME,
   ITEM_CATEGORIES,
   LOCATION_UNIT_TYPES,
+  ORDER_STATUSES,
   QR_CODE_TYPES,
 } from "../src/lib/db/defaults";
 
@@ -57,6 +58,14 @@ async function main() {
       where: { code: category.code },
       create: category,
       update: { name: category.name },
+    });
+  }
+
+  for (const status of ORDER_STATUSES) {
+    await prisma.orderStatus.upsert({
+      where: { code: status.code },
+      create: status,
+      update: { name: status.name },
     });
   }
 }

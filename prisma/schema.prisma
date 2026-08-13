@@ -21,8 +21,9 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  memberships WarehouseMembership[]
-  files       File[]
+  memberships   WarehouseMembership[]
+  files         File[]
+  createdOrders EventOrder[]
 }
 
 /// Warehouse-scoped role. Seed ADMIN for MVP; Staff is deferred.
@@ -115,6 +116,7 @@ model Item {
   locationUnit LocationUnit? @relation(fields: [locationUnitId], references: [id])
   qrCode       QrCode?       @relation(fields: [qrCodeId], references: [id], onDelete: SetNull)
   files        File[]
+  orderLines   OrderLine[]
 
   @@index([warehouseId])
   @@index([categoryId])
@@ -202,4 +204,50 @@ model QrCode {
   item         Item?
 
   @@index([typeId])
+}
+
+/// Lookup: PAYMENT_PENDING, PAID, SETUP_INPROGRESS, SETUP_FULFILLED, TEARDOWN_STARTED, COMPLETE.
+model OrderStatus {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+
+  orders EventOrder[]
+}
+
+/// Event rental order. Not warehouse-owned; lines may reference items from any warehouse.
+model EventOrder {
+  id              String    @id @default(cuid())
+  name            String
+  eventDate       DateTime? @db.Date
+  statusId        String
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  status    OrderStatus @relation(fields: [statusId], references: [id])
+  createdBy User        @relation(fields: [createdByUserId], references: [id])
+  lines     OrderLine[]
+
+  @@index([statusId])
+  @@index([createdByUserId])
+}
+
+/// Requested inventory on an event order. qtyPicked/qtyReturned are fulfillment, not web-editable.
+model OrderLine {
+  id           String   @id @default(cuid())
+  orderId      String
+  itemId       String
+  qtyRequested Int
+  qtyPicked    Int      @default(0)
+  qtyReturned  Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  order EventOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item  Item       @relation(fields: [itemId], references: [id])
+
+  @@unique([orderId, itemId])
+  @@index([orderId])
+  @@index([itemId])
 }

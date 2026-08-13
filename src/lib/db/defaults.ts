@@ -86,6 +86,42 @@ export const ITEM_CATEGORIES = [
   { id: ITEM_CATEGORY_IDS.OTHER, code: "OTHER", name: "Other" },
 ] as const;
 
+export const ORDER_STATUS_PAYMENT_PENDING = "PAYMENT_PENDING";
+
+export const ORDER_STATUS_IDS = {
+  PAYMENT_PENDING: "os_payment_pending",
+  PAID: "os_paid",
+  SETUP_INPROGRESS: "os_setup_inprogress",
+  SETUP_FULFILLED: "os_setup_fulfilled",
+  TEARDOWN_STARTED: "os_teardown_started",
+  COMPLETE: "os_complete",
+} as const;
+
+export const ORDER_STATUSES = [
+  {
+    id: ORDER_STATUS_IDS.PAYMENT_PENDING,
+    code: ORDER_STATUS_PAYMENT_PENDING,
+    name: "Payment pending",
+  },
+  { id: ORDER_STATUS_IDS.PAID, code: "PAID", name: "Paid" },
+  {
+    id: ORDER_STATUS_IDS.SETUP_INPROGRESS,
+    code: "SETUP_INPROGRESS",
+    name: "Setup in progress",
+  },
+  {
+    id: ORDER_STATUS_IDS.SETUP_FULFILLED,
+    code: "SETUP_FULFILLED",
+    name: "Setup fulfilled",
+  },
+  {
+    id: ORDER_STATUS_IDS.TEARDOWN_STARTED,
+    code: "TEARDOWN_STARTED",
+    name: "Teardown started",
+  },
+  { id: ORDER_STATUS_IDS.COMPLETE, code: "COMPLETE", name: "Complete" },
+] as const;
+
 /** Item.material picker values for catalog (not a DB lookup table). */
 export const ITEM_MATERIALS = [
   { code: "PLASTIC", name: "Plastic" },

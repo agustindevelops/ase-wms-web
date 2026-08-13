@@ -30,7 +30,10 @@ function createPrismaClient() {
  */
 export function getPrisma(): PrismaClient {
   const existing = globalForPrisma.prismaClient;
-  if (existing && typeof (existing as { itemCategory?: unknown }).itemCategory === "undefined") {
+  if (
+    existing &&
+    typeof (existing as { eventOrder?: unknown }).eventOrder === "undefined"
+  ) {
     void existing.$disconnect().catch(() => undefined);
     globalForPrisma.prismaClient = undefined;
   }
