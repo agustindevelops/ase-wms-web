@@ -8,7 +8,7 @@ import { PrismaClient } from "@/generated/prisma/client";
  * Never import this from Client Components. DATABASE_URL must stay off NEXT_PUBLIC_*.
  */
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+  prismaClient: PrismaClient | undefined;
 };
 
 function createPrismaClient() {
@@ -25,17 +25,21 @@ function createPrismaClient() {
 
 /** Lazy so importing route modules does not require DATABASE_URL at build time. */
 export function getPrisma(): PrismaClient {
-  if (!globalForPrisma.prisma) {
-    globalForPrisma.prisma = createPrismaClient();
+  if (!globalForPrisma.prismaClient) {
+    globalForPrisma.prismaClient = createPrismaClient();
   }
-  return globalForPrisma.prisma;
+  return globalForPrisma.prismaClient;
 }
 
-/** Convenience alias used by API routes after Bearer verification. */
+/**
+ * Lazy Prisma accessor. Model getters (user, locationUnit, …) must run with
+ * the real client as `this`. Using the Proxy as Reflect receiver returns
+ * undefined delegates and 500s like "Cannot read properties of undefined".
+ */
 export const prisma = new Proxy({} as PrismaClient, {
-  get(_target, prop, receiver) {
+  get(_target, prop) {
     const client = getPrisma();
-    const value = Reflect.get(client, prop, receiver);
+    const value = Reflect.get(client, prop, client);
     return typeof value === "function" ? value.bind(client) : value;
   },
 });

@@ -33,7 +33,11 @@ export default function SignInPage() {
     setSubmitting(false);
 
     if (error) {
-      setErrorMessage("Could not sign in. Check your email and password.");
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not sign in. Check your email and password.",
+      );
       console.error(error);
       return;
     }

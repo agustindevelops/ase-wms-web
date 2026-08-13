@@ -2,11 +2,18 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import type { DecodedIdToken } from "firebase-admin/auth";
+import type {
+  Role,
+  User,
+  Warehouse,
+  WarehouseMembership,
+} from "@/generated/prisma/client";
 import { getFirebaseAdminAuth } from "@/lib/auth/firebaseAdmin";
 import {
-  ensureUserWarehouse,
-  type UserWarehouseContext,
-} from "@/lib/db/ensureUserWarehouse";
+  getProvisionedSession,
+  SessionLookupError,
+} from "@/lib/auth/sessionService";
+import { getWmsClaims, syncWmsClaims } from "@/lib/auth/wmsClaims";
 
 export type AuthSuccess = {
   decoded: DecodedIdToken;
@@ -16,7 +23,17 @@ export type AuthFailure = {
   response: NextResponse;
 };
 
-export type PrismaAuthContext = AuthSuccess & UserWarehouseContext;
+export type UserWarehouseContext = {
+  user: User;
+  warehouse: Warehouse;
+  role: Role;
+  membership: WarehouseMembership;
+};
+
+export type PrismaAuthContext = AuthSuccess &
+  UserWarehouseContext & {
+    tokenRefreshRequired: boolean;
+  };
 
 /**
  * Verify Firebase Bearer token before any Prisma work.
@@ -59,15 +76,14 @@ export async function requireFirebaseUser(
 }
 
 export function isAuthFailure(
-  result: AuthSuccess | AuthFailure,
+  result: AuthSuccess | AuthFailure | object,
 ): result is AuthFailure {
   return "response" in result;
 }
 
 /**
- * Pattern for later Features: verify Bearer → then upsert Prisma User,
- * the default warehouse, and ADMIN membership. Token check runs first;
- * unauthenticated requests never hit the DB.
+ * Verify Bearer, then load the existing Prisma User and warehouse memberships.
+ * Stamps memberships onto Firebase custom claims when they are missing/stale.
  */
 export async function requirePrismaUser(
   request: Request,
@@ -77,23 +93,31 @@ export async function requirePrismaUser(
     return auth;
   }
 
-  const email = auth.decoded.email;
-  if (!email) {
+  try {
+    const session = await getProvisionedSession(auth.decoded.uid);
+    const tokenRefreshRequired = await syncWmsClaims(
+      auth.decoded.uid,
+      getWmsClaims(auth.decoded),
+      session.claims,
+    );
+
     return {
-      response: NextResponse.json(
-        {
-          error: "Unauthorized",
-          message: "Token is missing an email claim",
-        },
-        { status: 401 },
-      ),
+      decoded: auth.decoded,
+      user: session.user,
+      warehouse: session.warehouse,
+      role: session.role,
+      membership: session.membership,
+      tokenRefreshRequired,
     };
+  } catch (error) {
+    if (error instanceof SessionLookupError) {
+      return {
+        response: NextResponse.json(
+          { error: error.code, message: error.message },
+          { status: error.status },
+        ),
+      };
+    }
+    throw error;
   }
-
-  const context = await ensureUserWarehouse({
-    firebaseUid: auth.decoded.uid,
-    email,
-  });
-
-  return { decoded: auth.decoded, ...context };
 }

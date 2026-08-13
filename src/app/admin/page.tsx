@@ -49,6 +49,10 @@ export default function AdminPage() {
         return;
       }
 
+      if (me.tokenRefreshRequired) {
+        await user.getIdToken(true);
+      }
+
       setApiStatus(
         `OK — db ${health.db}; Prisma user ${me.user?.email} (${me.user?.id}); warehouse ${me.warehouse?.name} (${me.role?.code})`,
       );

@@ -55,9 +55,10 @@ model Warehouse {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  address     Address               @relation(fields: [addressId], references: [id])
-  memberships WarehouseMembership[]
-  items       Item[]
+  address       Address               @relation(fields: [addressId], references: [id])
+  memberships   WarehouseMembership[]
+  items         Item[]
+  locationUnits LocationUnit[]
 }
 
 /// Authorization scope: a user is an admin of a warehouse they belong to.
@@ -127,4 +128,59 @@ model File {
   @@index([uploadedByUserId])
   @@index([status])
   @@index([s3Key])
+}
+
+/// Lookup: WAREHOUSE, ZONE, AISLE, RACK, SHELF, WALL. Hierarchy rules are out of scope.
+model LocationUnitType {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+
+  locationUnits LocationUnit[]
+}
+
+/// Nested warehouse location. Always scoped by warehouseId to prevent boundary crossover.
+model LocationUnit {
+  id                   String   @id @default(cuid())
+  warehouseId          String
+  parentLocationUnitId String?
+  locationUnitTypeId   String
+  name                 String
+  label                String?
+  qrCodeId             String?  @unique
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  warehouse Warehouse        @relation(fields: [warehouseId], references: [id])
+  parent    LocationUnit?    @relation("LocationUnitTree", fields: [parentLocationUnitId], references: [id])
+  children  LocationUnit[]   @relation("LocationUnitTree")
+  type      LocationUnitType @relation(fields: [locationUnitTypeId], references: [id])
+  qrCode    QrCode?          @relation(fields: [qrCodeId], references: [id], onDelete: SetNull)
+
+  @@index([warehouseId])
+  @@index([warehouseId, parentLocationUnitId])
+  @@index([parentLocationUnitId])
+  @@index([locationUnitTypeId])
+}
+
+/// Lookup: code 0 = item, code 1 = warehouse location unit.
+model QrCodeType {
+  id   String @id @default(cuid())
+  code Int    @unique
+  name String
+
+  qrCodes QrCode[]
+}
+
+model QrCode {
+  id        String   @id @default(cuid())
+  payload   String   @unique
+  typeId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  type         QrCodeType    @relation(fields: [typeId], references: [id])
+  locationUnit LocationUnit?
+
+  @@index([typeId])
 }
