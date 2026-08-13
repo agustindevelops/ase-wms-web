@@ -80,7 +80,7 @@ See [`.env.template`](./.env.template). You need:
 import {
   isAuthFailure,
   requireFirebaseUser, // token only — no Prisma
-  requirePrismaUser,   // token first, then User upsert
+  requirePrismaUser,   // token first, then User + warehouse membership
 } from "@/lib/auth/requireAuth";
 import { prisma } from "@/lib/db/prisma";
 
@@ -90,9 +90,11 @@ export async function GET(request: Request) {
 
   // Only after verify:
   const rows = await prisma.$queryRaw`SELECT 1`;
-  // Or: const { user } = await requirePrismaUser(request);
+  // Or: const { user, warehouse, role } = await requirePrismaUser(request);
 }
 ```
+
+`requirePrismaUser` is the first-login path: after Bearer verification it upserts the Prisma `User`, creates the hardcoded default warehouse (barebones address) if it does not exist, and associates the user as `ADMIN` via `WarehouseMembership`. Authorization is warehouse-scoped, not a global user role.
 
 Client helpers: `wmsFetch("/api/…", { idToken })` (same origin) or `aseApiFetch` for a remote API base URL.
 
@@ -101,7 +103,7 @@ Client helpers: `wmsFetch("/api/…", { idToken })` (same origin) or `aseApiFetc
 | Route | Behavior |
 | --- | --- |
 | `GET /api/health` | Bearer required → `SELECT 1` |
-| `GET /api/me` | Bearer required → upsert `User` by `firebaseUid` |
+| `GET /api/me` | Bearer required → upsert `User`, default warehouse, ADMIN membership |
 
 From `/admin`, use **Run authenticated smoke** after env + migrate are set.
 
@@ -123,6 +125,7 @@ Colors, Nickainley display font, logos, and floral imagery follow the marketing 
 | `npm run lint` | ESLint |
 | `npm run db:migrate` | Create/apply migrations |
 | `npm run db:push` | Push schema without migration files |
+| `npm run db:seed` | Seed lookup rows (ADMIN role) |
 | `npm run db:studio` | Prisma Studio |
 
 ## Project layout
@@ -137,7 +140,7 @@ src/
   context/       # AuthContextProvider
   firebase/      # client Auth + Firestore helpers
   lib/auth/      # Firebase Admin verify + requirePrismaUser
-  lib/db/        # Prisma singleton (server-only)
+  lib/db/        # Prisma singleton, first-login warehouse bootstrap
   lib/api/       # wmsFetch / aseApiFetch (Bearer ID token)
   generated/     # Prisma client (gitignored; generated on install)
 public/

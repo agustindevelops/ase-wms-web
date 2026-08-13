@@ -7,7 +7,8 @@ import {
 export const runtime = "nodejs";
 
 /**
- * First-login / session smoke: upsert User after Firebase Bearer verification.
+ * First-login / session smoke: after Firebase Bearer verification, upsert the
+ * Prisma User, the default warehouse (if missing), and ADMIN membership.
  * Use from web or ase-wms-app with Authorization: Bearer <idToken>.
  */
 export async function GET(request: Request) {
@@ -21,9 +22,16 @@ export async function GET(request: Request) {
       id: result.user.id,
       firebaseUid: result.user.firebaseUid,
       email: result.user.email,
-      role: result.user.role,
       createdAt: result.user.createdAt,
       updatedAt: result.user.updatedAt,
+    },
+    warehouse: {
+      id: result.warehouse.id,
+      name: result.warehouse.name,
+    },
+    role: {
+      code: result.role.code,
+      name: result.role.name,
     },
   });
 }

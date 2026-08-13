@@ -1,6 +1,7 @@
 // ASE WMS — base schema (grows from ERD:
 // https://agustindevelops.atlassian.net/wiki/spaces/ASE/pages/165216257)
 // Identity: Firebase Auth uid → User.firebaseUid
+// Authorization: WarehouseMembership + Role (not a global User.role)
 // Domain data lives here; Prisma client + DATABASE_URL are server-only.
 
 generator client {
@@ -12,19 +13,66 @@ datasource db {
   provider = "postgresql"
 }
 
-/// MVP role. Staff-limited access is deferred (ERD / scope).
-enum UserRole {
-  ADMIN
-}
-
 /// App user mirrored from Firebase Auth after Bearer verification.
 model User {
   id          String   @id @default(cuid())
   firebaseUid String   @unique
-  email       String
-  role        UserRole @default(ADMIN)
+  email       String   @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([email])
+  memberships WarehouseMembership[]
+}
+
+/// Warehouse-scoped role. Seed ADMIN for MVP; Staff is deferred.
+model Role {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  description String?
+
+  memberships WarehouseMembership[]
+}
+
+/// Physical address for a warehouse. Fields stay optional for a barebones bootstrap.
+model Address {
+  id           String  @id @default(cuid())
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  zipcode      String?
+  country      String?
+
+  warehouse Warehouse?
+}
+
+model Warehouse {
+  id        String   @id @default(cuid())
+  name      String
+  addressId String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  address      Address                @relation(fields: [addressId], references: [id])
+  memberships  WarehouseMembership[]
+}
+
+/// Authorization scope: a user is an admin of a warehouse they belong to.
+model WarehouseMembership {
+  id          String   @id @default(cuid())
+  warehouseId String
+  userId      String
+  roleId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+  role      Role      @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, warehouseId])
+  @@index([warehouseId])
+  @@index([userId])
+  @@index([roleId])
 }

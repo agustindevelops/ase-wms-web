@@ -3,8 +3,10 @@ import "server-only";
 import { NextResponse } from "next/server";
 import type { DecodedIdToken } from "firebase-admin/auth";
 import { getFirebaseAdminAuth } from "@/lib/auth/firebaseAdmin";
-import { prisma } from "@/lib/db/prisma";
-import type { User } from "@/generated/prisma/client";
+import {
+  ensureUserWarehouse,
+  type UserWarehouseContext,
+} from "@/lib/db/ensureUserWarehouse";
 
 export type AuthSuccess = {
   decoded: DecodedIdToken;
@@ -13,6 +15,8 @@ export type AuthSuccess = {
 export type AuthFailure = {
   response: NextResponse;
 };
+
+export type PrismaAuthContext = AuthSuccess & UserWarehouseContext;
 
 /**
  * Verify Firebase Bearer token before any Prisma work.
@@ -61,12 +65,13 @@ export function isAuthFailure(
 }
 
 /**
- * Pattern for later Features: verify Bearer → then load/upsert Prisma User.
- * Call this only after you intend to touch the DB; token check runs first.
+ * Pattern for later Features: verify Bearer → then upsert Prisma User,
+ * the default warehouse, and ADMIN membership. Token check runs first;
+ * unauthenticated requests never hit the DB.
  */
 export async function requirePrismaUser(
   request: Request,
-): Promise<{ decoded: DecodedIdToken; user: User } | AuthFailure> {
+): Promise<PrismaAuthContext | AuthFailure> {
   const auth = await requireFirebaseUser(request);
   if (isAuthFailure(auth)) {
     return auth;
@@ -85,16 +90,10 @@ export async function requirePrismaUser(
     };
   }
 
-  const user = await prisma.user.upsert({
-    where: { firebaseUid: auth.decoded.uid },
-    create: {
-      firebaseUid: auth.decoded.uid,
-      email,
-    },
-    update: {
-      email,
-    },
+  const context = await ensureUserWarehouse({
+    firebaseUid: auth.decoded.uid,
+    email,
   });
 
-  return { decoded: auth.decoded, user };
+  return { decoded: auth.decoded, ...context };
 }

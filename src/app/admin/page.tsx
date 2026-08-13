@@ -50,7 +50,7 @@ export default function AdminPage() {
       }
 
       setApiStatus(
-        `OK — db ${health.db}; Prisma user ${me.user?.email} (${me.user?.id})`,
+        `OK — db ${health.db}; Prisma user ${me.user?.email} (${me.user?.id}); warehouse ${me.warehouse?.name} (${me.role?.code})`,
       );
     } catch (error) {
       setApiStatus(
@@ -102,8 +102,8 @@ export default function AdminPage() {
           </h2>
           <p className="mt-2 text-sm text-brown-600">
             Calls <code className="text-brown-800">/api/health</code> (SELECT 1)
-            and <code className="text-brown-800">/api/me</code> (User upsert)
-            with your Firebase ID token.
+            and <code className="text-brown-800">/api/me</code> (User + warehouse
+            membership) with your Firebase ID token.
           </p>
           <button
             type="button"
