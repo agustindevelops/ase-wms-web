@@ -14,6 +14,7 @@ import { CatalogServiceError } from "@/lib/item/errors";
 import { getReadUrl } from "@/lib/storage/s3";
 
 const itemInclude = {
+  warehouse: { select: { id: true, name: true } },
   category: { select: { id: true, code: true, name: true } },
   qrCode: {
     select: { id: true, payload: true, typeId: true, createdAt: true },
@@ -55,6 +56,18 @@ export type ItemFilePublic = {
 
 export type ItemPublicRecord = Omit<ItemRecord, "files"> & {
   files: ItemFilePublic[];
+  locationPath: string | null;
+};
+
+export type LocationPathOption = {
+  id: string;
+  path: string;
+  warehouseId: string;
+};
+
+export type WarehouseOption = {
+  id: string;
+  name: string;
 };
 
 export type CatalogDetailFields = {
@@ -312,8 +325,136 @@ export function parseCatalogUpdateInput(
   return input;
 }
 
+type LocationUnitPathRow = {
+  id: string;
+  name: string;
+  label: string | null;
+  parentLocationUnitId: string | null;
+  warehouseId: string;
+  warehouseName: string;
+};
+
+function unitDisplayName(unit: LocationUnitPathRow): string {
+  const label = unit.label?.trim();
+  return label || unit.name;
+}
+
+async function loadLocationUnits(
+  warehouseId?: string,
+): Promise<LocationUnitPathRow[]> {
+  const units = await prisma.locationUnit.findMany({
+    where: warehouseId ? { warehouseId } : undefined,
+    select: {
+      id: true,
+      name: true,
+      label: true,
+      parentLocationUnitId: true,
+      warehouseId: true,
+      warehouse: { select: { name: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+  return units.map((unit) => ({
+    id: unit.id,
+    name: unit.name,
+    label: unit.label,
+    parentLocationUnitId: unit.parentLocationUnitId,
+    warehouseId: unit.warehouseId,
+    warehouseName: unit.warehouse.name,
+  }));
+}
+
+async function loadLocationById(
+  warehouseId?: string,
+): Promise<Map<string, LocationUnitPathRow>> {
+  const units = await loadLocationUnits(warehouseId);
+  return new Map(units.map((unit) => [unit.id, unit]));
+}
+
+export function buildLocationPath(
+  unitId: string | null | undefined,
+  byId: Map<string, LocationUnitPathRow>,
+): string | null {
+  if (!unitId) {
+    return null;
+  }
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  let current = byId.get(unitId);
+  const warehouseName = current?.warehouseName;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    parts.unshift(unitDisplayName(current));
+    current = current.parentLocationUnitId
+      ? byId.get(current.parentLocationUnitId)
+      : undefined;
+  }
+  if (parts.length === 0) {
+    return null;
+  }
+  if (warehouseName) {
+    parts.unshift(warehouseName);
+  }
+  return parts.join(" / ");
+}
+
+function descendantLocationIds(
+  rootId: string,
+  units: LocationUnitPathRow[],
+): string[] {
+  const children = new Map<string, string[]>();
+  for (const unit of units) {
+    if (!unit.parentLocationUnitId) {
+      continue;
+    }
+    const list = children.get(unit.parentLocationUnitId) ?? [];
+    list.push(unit.id);
+    children.set(unit.parentLocationUnitId, list);
+  }
+  const ids: string[] = [];
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    ids.push(id);
+    const nested = children.get(id);
+    if (nested) {
+      stack.push(...nested);
+    }
+  }
+  return ids;
+}
+
+export async function listInventoryLocationPaths(
+  warehouseId?: string,
+): Promise<LocationPathOption[]> {
+  const units = await loadLocationUnits(warehouseId);
+  const byId = new Map(units.map((unit) => [unit.id, unit]));
+  return units
+    .map((unit) => ({
+      id: unit.id,
+      warehouseId: unit.warehouseId,
+      path: buildLocationPath(unit.id, byId) ?? unitDisplayName(unit),
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+export async function listWarehouses(): Promise<WarehouseOption[]> {
+  return prisma.warehouse.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+/** @deprecated Use listInventoryLocationPaths */
+export async function listWarehouseLocationPaths(
+  warehouseId: string,
+): Promise<LocationPathOption[]> {
+  return listInventoryLocationPaths(warehouseId);
+}
+
 export async function withItemReadUrls(
   item: ItemRecord,
+  locationById?: Map<string, LocationUnitPathRow>,
 ): Promise<ItemPublicRecord> {
   const files = await Promise.all(
     item.files.map(async (file) => {
@@ -335,14 +476,20 @@ export async function withItemReadUrls(
       };
     }),
   );
+  const byId = locationById ?? (await loadLocationById(item.warehouseId));
   const { files: _files, ...rest } = item;
-  return { ...rest, files };
+  return {
+    ...rest,
+    files,
+    locationPath: buildLocationPath(item.locationUnitId, byId),
+  };
 }
 
 export async function withItemsReadUrls(
   items: ItemRecord[],
 ): Promise<ItemPublicRecord[]> {
-  return Promise.all(items.map((item) => withItemReadUrls(item)));
+  const byId = await loadLocationById();
+  return Promise.all(items.map((item) => withItemReadUrls(item, byId)));
 }
 
 export async function listItemCategories() {
@@ -660,12 +807,16 @@ export async function bindItemToLocationUnit(
 export type WarehouseItemLocationFilter = "none" | "set" | "all";
 export type WarehouseItemArchivedFilter = "0" | "1" | "all";
 
-export type WarehouseItemListFilters = {
+export type InventoryListFilters = {
+  warehouseId?: string;
   location: WarehouseItemLocationFilter;
   q?: string;
   categoryId?: string;
+  locationUnitId?: string;
   archived: WarehouseItemArchivedFilter;
 };
+
+export type WarehouseItemListFilters = Omit<InventoryListFilters, "warehouseId">;
 
 export function parseWarehouseItemLocationFilter(
   value: string | null,
@@ -697,62 +848,126 @@ export function parseWarehouseItemArchivedFilter(
   );
 }
 
-export function parseWarehouseItemListFilters(
+export function parseInventoryListFilters(
   searchParams: URLSearchParams,
-): WarehouseItemListFilters {
+): InventoryListFilters {
   const q = searchParams.get("q")?.trim() || undefined;
   const categoryId = searchParams.get("categoryId")?.trim() || undefined;
+  const locationUnitId =
+    searchParams.get("locationUnitId")?.trim() || undefined;
+  const warehouseId = searchParams.get("warehouseId")?.trim() || undefined;
   return {
+    warehouseId,
     location: parseWarehouseItemLocationFilter(searchParams.get("location")),
     q,
     categoryId,
+    locationUnitId,
     archived: parseWarehouseItemArchivedFilter(searchParams.get("archived")),
   };
 }
 
+export function parseWarehouseItemListFilters(
+  searchParams: URLSearchParams,
+): WarehouseItemListFilters {
+  const { warehouseId: _warehouseId, ...filters } =
+    parseInventoryListFilters(searchParams);
+  return filters;
+}
+
 const archivedDispositionCodes: string[] = [...ARCHIVED_DISPOSITION_CODES];
+
+export async function listInventoryItems(
+  filters: InventoryListFilters,
+): Promise<ItemRecord[]> {
+  const units = await loadLocationUnits(filters.warehouseId);
+  const byId = new Map(units.map((unit) => [unit.id, unit]));
+  const and: Prisma.ItemWhereInput[] = [];
+
+  if (filters.warehouseId) {
+    and.push({ warehouseId: filters.warehouseId });
+  }
+
+  if (filters.location === "none") {
+    and.push({ locationUnitId: null });
+  } else if (filters.location === "set") {
+    and.push({ locationUnitId: { not: null } });
+  }
+
+  if (filters.categoryId) {
+    and.push({ categoryId: filters.categoryId });
+  }
+
+  if (filters.locationUnitId) {
+    const scope = descendantLocationIds(filters.locationUnitId, units);
+    and.push({ locationUnitId: { in: scope } });
+  }
+
+  if (filters.q) {
+    const needle = filters.q.toLowerCase();
+    const matchingLocationIds = units
+      .filter((unit) => {
+        const path = buildLocationPath(unit.id, byId) ?? "";
+        return (
+          unit.name.toLowerCase().includes(needle) ||
+          (unit.label ?? "").toLowerCase().includes(needle) ||
+          unit.warehouseName.toLowerCase().includes(needle) ||
+          path.toLowerCase().includes(needle)
+        );
+      })
+      .map((unit) => unit.id);
+    and.push({
+      OR: [
+        { name: { contains: filters.q, mode: "insensitive" } },
+        { warehouse: { name: { contains: filters.q, mode: "insensitive" } } },
+        ...(matchingLocationIds.length > 0
+          ? [{ locationUnitId: { in: matchingLocationIds } }]
+          : []),
+      ],
+    });
+  }
+
+  if (filters.archived === "0") {
+    and.push({
+      OR: [
+        { disposition: null },
+        { disposition: { notIn: archivedDispositionCodes } },
+      ],
+    });
+  } else if (filters.archived === "1") {
+    and.push({ disposition: { in: archivedDispositionCodes } });
+  }
+
+  return prisma.item.findMany({
+    where: and.length > 0 ? { AND: and } : {},
+    include: itemInclude,
+    orderBy: { name: "asc" },
+  });
+}
 
 export async function listWarehouseItems(
   warehouseId: string,
   filters: WarehouseItemListFilters,
 ): Promise<ItemRecord[]> {
-  return prisma.item.findMany({
-    where: {
-      warehouseId,
-      ...(filters.location === "none"
-        ? { locationUnitId: null }
-        : filters.location === "set"
-          ? { locationUnitId: { not: null } }
-          : {}),
-      ...(filters.q
-        ? { name: { contains: filters.q, mode: "insensitive" } }
-        : {}),
-      ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
-      ...(filters.archived === "0"
-        ? {
-            OR: [
-              { disposition: null },
-              { disposition: { notIn: archivedDispositionCodes } },
-            ],
-          }
-        : filters.archived === "1"
-          ? { disposition: { in: archivedDispositionCodes } }
-          : {}),
-    },
+  return listInventoryItems({ ...filters, warehouseId });
+}
+
+export async function getInventoryItem(itemId: string): Promise<ItemRecord> {
+  const item = await prisma.item.findUnique({
+    where: { id: itemId },
     include: itemInclude,
-    orderBy: { name: "asc" },
   });
+  if (!item) {
+    throw new CatalogServiceError("ITEM_NOT_FOUND", "Item not found", 404);
+  }
+  return item;
 }
 
 export async function getWarehouseItem(
   warehouseId: string,
   itemId: string,
 ): Promise<ItemRecord> {
-  const item = await prisma.item.findFirst({
-    where: { id: itemId, warehouseId },
-    include: itemInclude,
-  });
-  if (!item) {
+  const item = await getInventoryItem(itemId);
+  if (item.warehouseId !== warehouseId) {
     throw new CatalogServiceError(
       "ITEM_NOT_FOUND",
       "Item not found in this warehouse",
@@ -806,8 +1021,7 @@ async function assertVerifiedUnattachedFiles(
   }
 }
 
-export async function updateWarehouseItem(
-  warehouseId: string,
+export async function updateInventoryItem(
   itemId: string,
   input: CatalogUpdateInput,
 ): Promise<ItemRecord> {
@@ -825,16 +1039,12 @@ export async function updateWarehouseItem(
   }
 
   return prisma.$transaction(async (tx) => {
-    const existing = await tx.item.findFirst({
-      where: { id: itemId, warehouseId },
+    const existing = await tx.item.findUnique({
+      where: { id: itemId },
       include: { files: { select: { sortOrder: true } } },
     });
     if (!existing) {
-      throw new CatalogServiceError(
-        "ITEM_NOT_FOUND",
-        "Item not found in this warehouse",
-        404,
-      );
+      throw new CatalogServiceError("ITEM_NOT_FOUND", "Item not found", 404);
     }
 
     const photoFileIds = input.photoFileIds ?? [];
@@ -895,6 +1105,15 @@ export async function updateWarehouseItem(
       include: itemInclude,
     });
   });
+}
+
+export async function updateWarehouseItem(
+  warehouseId: string,
+  itemId: string,
+  input: CatalogUpdateInput,
+): Promise<ItemRecord> {
+  await getWarehouseItem(warehouseId, itemId);
+  return updateInventoryItem(itemId, input);
 }
 
 export async function unbindItemFromLocation(

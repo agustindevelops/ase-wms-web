@@ -3,6 +3,7 @@ import { isAuthFailure } from "@/lib/auth/requireAuth";
 import { withWarehouseAdminRead } from "@/lib/auth/requireWarehouseAdmin";
 import {
   listWarehouseItems,
+  listWarehouseLocationPaths,
   parseWarehouseItemListFilters,
   withItemsReadUrls,
 } from "@/lib/item/catalogService";
@@ -12,7 +13,8 @@ export const runtime = "nodejs";
 
 /**
  * GET /api/warehouse/{warehouseId}/item
- * Query: location=none|set|all, q, categoryId, archived=0|1|all (default 0)
+ * Query: location=none|set|all, q (name or location path), categoryId,
+ * locationUnitId, archived=0|1|all (default 0)
  */
 export async function GET(
   request: Request,
@@ -22,15 +24,19 @@ export async function GET(
     const { warehouseId } = await context.params;
     const filters = parseWarehouseItemListFilters(new URL(request.url).searchParams);
 
-    const result = await withWarehouseAdminRead(request, warehouseId, () =>
-      listWarehouseItems(warehouseId, filters),
-    );
+    const result = await withWarehouseAdminRead(request, warehouseId, async () => {
+      const [items, locations] = await Promise.all([
+        listWarehouseItems(warehouseId, filters),
+        listWarehouseLocationPaths(warehouseId),
+      ]);
+      return { items, locations };
+    });
     if (isAuthFailure(result)) {
       return result.response;
     }
 
-    const items = await withItemsReadUrls(result.data);
-    return NextResponse.json({ items });
+    const items = await withItemsReadUrls(result.data.items);
+    return NextResponse.json({ items, locations: result.data.locations });
   } catch (error) {
     return toCatalogErrorResponse(error);
   }

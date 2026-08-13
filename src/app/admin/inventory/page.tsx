@@ -2,27 +2,46 @@
 
 import { useAuthContext } from "@/context/AuthContext";
 import { wmsFetch } from "@/lib/api/wmsFetch";
-import { type User } from "firebase/auth";
+import { ARCHIVED_DISPOSITION_CODES } from "@/lib/db/defaults";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { CategoryOption, InventoryItem } from "./inventoryTypes";
 
 type LocationFilter = "all" | "set" | "none";
 type ArchivedFilter = "0" | "1" | "all";
+type LocationOption = { id: string; path: string; warehouseId: string };
+type WarehouseOption = { id: string; name: string };
+type ArchiveChoice = (typeof ARCHIVED_DISPOSITION_CODES)[number];
+
+const archivedCodes = new Set<string>(ARCHIVED_DISPOSITION_CODES);
 
 const pill = (active: boolean) =>
   active
     ? "rounded-full bg-green-700 px-3 py-1.5 text-sm font-medium text-white"
     : "rounded-full border border-brown-300 px-3 py-1.5 text-sm font-medium text-brown-700 hover:bg-brown-100";
 
+function isArchived(item: InventoryItem) {
+  return item.disposition != null && archivedCodes.has(item.disposition);
+}
+
+function locationText(item: InventoryItem) {
+  return item.locationPath || item.locationUnit?.label || item.locationUnit?.name || "—";
+}
+
 export default function InventoryPage() {
-  const { user } = useAuthContext() as { user: User | null };
+  const { user } = useAuthContext();
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [locations, setLocations] = useState<LocationOption[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [q, setQ] = useState("");
+  const [warehouseId, setWarehouseId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [location, setLocation] = useState<LocationFilter>("all");
+  const [locationUnitId, setLocationUnitId] = useState("");
   const [archived, setArchived] = useState<ArchivedFilter>("0");
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [rowBusyId, setRowBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -33,17 +52,12 @@ export default function InventoryPage() {
     setLoading(true);
     setError(null);
     try {
-      const idToken = await user.getIdToken();
-      const meRes = await wmsFetch("/api/me", { idToken });
-      const me = await meRes.json();
-      const warehouseId = me.warehouse?.id as string | undefined;
-      if (!warehouseId) {
-        throw new Error("No warehouse on this account");
-      }
-
       const params = new URLSearchParams();
       if (q.trim()) {
         params.set("q", q.trim());
+      }
+      if (warehouseId) {
+        params.set("warehouseId", warehouseId);
       }
       if (categoryId) {
         params.set("categoryId", categoryId);
@@ -51,11 +65,14 @@ export default function InventoryPage() {
       if (location !== "all") {
         params.set("location", location);
       }
+      if (locationUnitId) {
+        params.set("locationUnitId", locationUnitId);
+      }
       params.set("archived", archived);
 
       const [itemRes, catRes] = await Promise.all([
-        wmsFetch(`/api/warehouse/${warehouseId}/item?${params}`, { idToken }),
-        wmsFetch("/api/lookup/item-categories", { idToken }),
+        wmsFetch(`/api/inventory?${params}`),
+        wmsFetch("/api/lookup/item-categories"),
       ]);
       const itemJson = await itemRes.json();
       const catJson = await catRes.json();
@@ -66,6 +83,8 @@ export default function InventoryPage() {
         throw new Error(catJson.message ?? "Could not load categories");
       }
       setItems(itemJson.items);
+      setLocations(itemJson.locations ?? []);
+      setWarehouses(itemJson.warehouses ?? []);
       setCategories(catJson.categories);
     } catch (cause) {
       setError(
@@ -74,23 +93,51 @@ export default function InventoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [user, q, categoryId, location, archived]);
+  }, [user, warehouseId, q, categoryId, location, locationUnitId, archived]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const patchDisposition = async (
+    item: InventoryItem,
+    disposition: string | null,
+  ) => {
+    if (!user) {
+      return;
+    }
+    setRowBusyId(item.id);
+    setError(null);
+    try {
+      const response = await wmsFetch(`/api/inventory/${item.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ disposition }),
+        },
+      );
+      const json = await response.json();
+      if (!response.ok) {
+        throw new Error(json.message ?? "Could not update item");
+      }
+      setConfirmId(null);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Update failed");
+    } finally {
+      setRowBusyId(null);
+    }
+  };
 
   if (!user) {
     return null;
   }
 
   return (
-    <section className="mx-auto max-w-5xl px-4 py-12">
+    <section className="mx-auto max-w-6xl px-4 py-12">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="font-nickainley text-3xl text-brown-800">Inventory</h2>
           <p className="mt-1 text-sm text-brown-600">
-            Search and complete detailed item records.
+            Search by name or warehouse path, then complete detailed records.
           </p>
         </div>
         <Link
@@ -101,17 +148,69 @@ export default function InventoryPage() {
         </Link>
       </div>
 
-      <div className="mt-6">
-        <label htmlFor="q" className="sr-only">
-          Search by name
-        </label>
-        <input
-          id="q"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name"
-          className="w-full max-w-md rounded-lg border border-brown-200 bg-white px-3 py-2 text-brown-800 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200"
-        />
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <div>
+          <label htmlFor="q" className="mb-2 block text-sm font-medium text-brown-700">
+            Search
+          </label>
+          <input
+            id="q"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Name, warehouse, or location path"
+            className="w-full rounded-lg border border-brown-200 bg-white px-3 py-2 text-brown-800 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200"
+          />
+        </div>
+        <div>
+          <label
+            htmlFor="warehouseId"
+            className="mb-2 block text-sm font-medium text-brown-700"
+          >
+            Warehouse
+          </label>
+          <select
+            id="warehouseId"
+            value={warehouseId}
+            onChange={(e) => {
+              setWarehouseId(e.target.value);
+              setLocationUnitId("");
+            }}
+            className="w-full rounded-lg border border-brown-200 bg-white px-3 py-2 text-brown-800 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200"
+          >
+            <option value="">All warehouses</option>
+            {warehouses.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label
+            htmlFor="locationUnitId"
+            className="mb-2 block text-sm font-medium text-brown-700"
+          >
+            Location path
+          </label>
+          <select
+            id="locationUnitId"
+            value={locationUnitId}
+            onChange={(e) => {
+              setLocationUnitId(e.target.value);
+              if (e.target.value) {
+                setLocation("all");
+              }
+            }}
+            className="w-full rounded-lg border border-brown-200 bg-white px-3 py-2 text-brown-800 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200"
+          >
+            <option value="">All location paths</option>
+            {locations.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.path}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -145,8 +244,11 @@ export default function InventoryPage() {
           <button
             key={value}
             type="button"
-            className={pill(location === value)}
-            onClick={() => setLocation(value)}
+            className={pill(location === value && !locationUnitId)}
+            onClick={() => {
+              setLocation(value);
+              setLocationUnitId("");
+            }}
           >
             {label}
           </button>
@@ -184,22 +286,24 @@ export default function InventoryPage() {
             <tr>
               <th className="px-4 py-3 font-medium">Photo</th>
               <th className="px-4 py-3 font-medium">Name</th>
+              <th className="px-4 py-3 font-medium">Warehouse</th>
               <th className="px-4 py-3 font-medium">Category</th>
-              <th className="px-4 py-3 font-medium">Location</th>
+              <th className="px-4 py-3 font-medium">Location path</th>
               <th className="px-4 py-3 font-medium">Owned</th>
               <th className="px-4 py-3 font-medium">Available</th>
+              <th className="px-4 py-3 font-medium" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-4 py-6 text-brown-500" colSpan={6}>
+                <td className="px-4 py-6 text-brown-500" colSpan={8}>
                   Loading…
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td className="px-4 py-6 text-brown-500" colSpan={6}>
+                <td className="px-4 py-6 text-brown-500" colSpan={8}>
                   No items match these filters.
                 </td>
               </tr>
@@ -207,8 +311,10 @@ export default function InventoryPage() {
               items.map((item) => {
                 const thumb =
                   item.files.find((file) => file.readUrl)?.readUrl ?? null;
+                const confirming = confirmId === item.id;
+                const archivedItem = isArchived(item);
                 return (
-                  <tr key={item.id} className="border-t border-brown-100">
+                  <tr key={item.id} className="border-t border-brown-100 align-top">
                     <td className="px-4 py-3">
                       {thumb ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -230,18 +336,67 @@ export default function InventoryPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-brown-700">
-                      {item.category?.name ?? "—"}
+                      {item.warehouse?.name ?? "—"}
                     </td>
                     <td className="px-4 py-3 text-brown-700">
-                      {item.locationUnit?.label ||
-                        item.locationUnit?.name ||
-                        "—"}
+                      {item.category?.name ?? "—"}
+                    </td>
+                    <td className="max-w-xs px-4 py-3 text-brown-700">
+                      {locationText(item)}
                     </td>
                     <td className="px-4 py-3 text-brown-700">
                       {item.quantityOwned}
                     </td>
                     <td className="px-4 py-3 text-brown-700">
                       {item.quantityAvailable}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {confirming ? (
+                        <div className="flex flex-col items-end gap-2">
+                          <p className="text-xs text-brown-600">
+                            Archive {item.name}?
+                          </p>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            {ARCHIVED_DISPOSITION_CODES.map((code: ArchiveChoice) => (
+                              <button
+                                key={code}
+                                type="button"
+                                disabled={rowBusyId === item.id}
+                                onClick={() => void patchDisposition(item, code)}
+                                className="rounded-full bg-peach-700 px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
+                              >
+                                {code === "SELL" ? "Sell" : "Discard"}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              disabled={rowBusyId === item.id}
+                              onClick={() => setConfirmId(null)}
+                              className="rounded-full border border-brown-300 px-3 py-1 text-xs font-medium text-brown-700"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : archivedItem ? (
+                        <button
+                          type="button"
+                          disabled={rowBusyId === item.id}
+                          onClick={() => void patchDisposition(item, "BUSINESS")}
+                          className="text-sm font-medium text-green-800 underline-offset-2 hover:underline disabled:opacity-60"
+                        >
+                          Restore
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={rowBusyId === item.id}
+                          onClick={() => setConfirmId(item.id)}
+                          className="text-sm font-medium text-peach-700 underline-offset-2 hover:underline disabled:opacity-60"
+                        >
+                          Archive
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );

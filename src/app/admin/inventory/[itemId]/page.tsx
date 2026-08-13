@@ -2,7 +2,6 @@
 
 import { useAuthContext } from "@/context/AuthContext";
 import { wmsFetch } from "@/lib/api/wmsFetch";
-import { type User } from "firebase/auth";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
@@ -25,7 +24,7 @@ type OrderListItem = {
 };
 
 export default function EditInventoryPage() {
-  const { user } = useAuthContext() as { user: User | null };
+  const { user } = useAuthContext();
   const params = useParams<{ itemId: string }>();
   const itemId = params.itemId;
 
@@ -40,8 +39,6 @@ export default function EditInventoryPage() {
   const [orderId, setOrderId] = useState("");
   const [qtyRequested, setQtyRequested] = useState("1");
   const [orderMessage, setOrderMessage] = useState<string | null>(null);
-  const [idToken, setIdToken] = useState("");
-  const [warehouseId, setWarehouseId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -53,26 +50,14 @@ export default function EditInventoryPage() {
     setLoading(true);
     setError(null);
     try {
-      const token = await user.getIdToken();
-      setIdToken(token);
-      const meRes = await wmsFetch("/api/me", { idToken: token });
-      const me = await meRes.json();
-      const nextWarehouseId = me.warehouse?.id as string | undefined;
-      if (!nextWarehouseId) {
-        throw new Error("No warehouse on this account");
-      }
-      setWarehouseId(nextWarehouseId);
-
       const [itemRes, catRes, matRes, condRes, dispRes, orderRes] =
         await Promise.all([
-          wmsFetch(`/api/warehouse/${nextWarehouseId}/item/${itemId}`, {
-            idToken: token,
-          }),
-          wmsFetch("/api/lookup/item-categories", { idToken: token }),
-          wmsFetch("/api/lookup/materials", { idToken: token }),
-          wmsFetch("/api/lookup/item-conditions", { idToken: token }),
-          wmsFetch("/api/lookup/item-dispositions", { idToken: token }),
-          wmsFetch("/api/order", { idToken: token }),
+          wmsFetch(`/api/inventory/${itemId}`),
+          wmsFetch("/api/lookup/item-categories"),
+          wmsFetch("/api/lookup/materials"),
+          wmsFetch("/api/lookup/item-conditions"),
+          wmsFetch("/api/lookup/item-dispositions"),
+          wmsFetch("/api/order"),
         ]);
       const itemJson = await itemRes.json();
       const catJson = await catRes.json();
@@ -129,22 +114,17 @@ export default function EditInventoryPage() {
     setBusy(true);
     setError(null);
     try {
-      const token = await user.getIdToken();
       const payload = formToPayload(values);
-      const response = await wmsFetch(
-        `/api/warehouse/${warehouseId}/item/${item.id}`,
-        {
-          idToken: token,
-          method: "PATCH",
-          body: JSON.stringify({
-            ...payload,
-            quantityOwned: payload.quantity,
-            ...(pendingPhotos.length > 0
-              ? { photoFileIds: pendingPhotos.map((photo) => photo.fileId) }
-              : {}),
-          }),
-        },
-      );
+      const response = await wmsFetch(`/api/inventory/${item.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...payload,
+          quantityOwned: payload.quantity,
+          ...(pendingPhotos.length > 0
+            ? { photoFileIds: pendingPhotos.map((photo) => photo.fileId) }
+            : {}),
+        }),
+      });
       const json = await response.json();
       if (!response.ok) {
         throw new Error(json.message ?? "Could not save item");
@@ -169,9 +149,7 @@ export default function EditInventoryPage() {
     setError(null);
     setOrderMessage(null);
     try {
-      const token = await user.getIdToken();
       const response = await wmsFetch(`/api/order/${orderId}/line`, {
-        idToken: token,
         method: "POST",
         body: JSON.stringify({
           itemId: item.id,
@@ -220,7 +198,11 @@ export default function EditInventoryPage() {
         {item.name}
       </h2>
       <p className="mt-1 text-sm text-brown-600">
-        {item.locationUnit?.label || item.locationUnit?.name || "No location"}
+        {item.warehouse?.name ? `${item.warehouse.name} · ` : ""}
+        {item.locationPath ||
+          item.locationUnit?.label ||
+          item.locationUnit?.name ||
+          "No location"}
         {" · "}
         {item.quantityOwned} owned / {item.quantityAvailable} available
       </p>
@@ -235,7 +217,6 @@ export default function EditInventoryPage() {
         existingPhotos={item.files}
         pendingPhotos={pendingPhotos}
         onPendingPhotosChange={setPendingPhotos}
-        idToken={idToken}
         submitLabel="Save item"
         busy={busy}
         error={error}

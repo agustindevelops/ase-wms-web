@@ -1,23 +1,34 @@
-/**
- * Call this app's Next.js API routes with a Firebase ID token.
- * Prefer this over aseApiFetch for same-origin WMS routes under /api/*.
- */
-export async function wmsFetch(
-  path: string,
-  {
-    idToken,
-    headers,
-    ...init
-  }: RequestInit & { idToken?: string | null } = {},
-) {
-  const url = path.startsWith("/") ? path : `/${path}`;
+import { getFirebaseAuth } from "@/firebase/config";
 
-  return fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-      ...headers,
-    },
-  });
+/**
+ * Same-origin `/api/*` calls. The Firebase SDK attaches a Bearer token;
+ * `getIdToken()` returns the cached JWT and refreshes it when it expires.
+ */
+export async function wmsFetch(path: string, init: RequestInit = {}) {
+  const url = path.startsWith("/") ? path : `/${path}`;
+  const { headers, ...rest } = init;
+
+  const user = getFirebaseAuth().currentUser;
+  if (!user) {
+    throw new Error("Not signed in.");
+  }
+
+  const send = async (forceRefresh = false) => {
+    const idToken = await user.getIdToken(forceRefresh);
+    return fetch(url, {
+      ...rest,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+        ...headers,
+      },
+    });
+  };
+
+  const response = await send();
+  if (response.status !== 401) {
+    return response;
+  }
+
+  return send(true);
 }

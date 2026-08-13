@@ -28,7 +28,9 @@ export type InventoryItem = {
   disposition: string | null;
   notes: string | null;
   category: CategoryOption | null;
+  warehouse: { id: string; name: string } | null;
   locationUnit: { id: string; name: string; label: string | null } | null;
+  locationPath: string | null;
   files: InventoryFile[];
 };
 

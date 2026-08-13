@@ -2,7 +2,6 @@
 
 import { useAuthContext } from "@/context/AuthContext";
 import { wmsFetch } from "@/lib/api/wmsFetch";
-import { type User } from "firebase/auth";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
@@ -24,7 +23,7 @@ function formatEventDate(value: string | null) {
 }
 
 export default function OrdersPage() {
-  const { user } = useAuthContext() as { user: User | null };
+  const { user } = useAuthContext();
   const [statuses, setStatuses] = useState<OrderStatus[]>([]);
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
   const [orders, setOrders] = useState<OrderListItem[]>([]);
@@ -38,15 +37,14 @@ export default function OrdersPage() {
     setLoading(true);
     setError(null);
     try {
-      const idToken = await user.getIdToken();
       const params = new URLSearchParams();
       for (const code of selectedCodes) {
         params.append("status", code);
       }
       const query = params.toString();
       const [statusRes, orderRes] = await Promise.all([
-        wmsFetch("/api/lookup/order-statuses", { idToken }),
-        wmsFetch(query ? `/api/order?${query}` : "/api/order", { idToken }),
+        wmsFetch("/api/lookup/order-statuses"),
+        wmsFetch(query ? `/api/order?${query}` : "/api/order"),
       ]);
       const statusJson = await statusRes.json();
       const orderJson = await orderRes.json();

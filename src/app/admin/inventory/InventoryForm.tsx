@@ -21,7 +21,6 @@ type Props = {
   existingPhotos?: Array<{ id: string; readUrl: string | null }>;
   pendingPhotos: PendingPhoto[];
   onPendingPhotosChange: (photos: PendingPhoto[]) => void;
-  idToken: string;
   submitLabel: string;
   busy: boolean;
   error: string | null;
@@ -31,16 +30,12 @@ type Props = {
 
 const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
 
-export async function uploadVerifiedPhoto(
-  idToken: string,
-  file: File,
-): Promise<PendingPhoto> {
+export async function uploadVerifiedPhoto(file: File): Promise<PendingPhoto> {
   if (!allowedTypes.includes(file.type)) {
     throw new Error("Photo must be JPEG, PNG, or WebP");
   }
 
   const signRes = await wmsFetch("/api/img/upload", {
-    idToken,
     method: "POST",
     body: JSON.stringify({
       content_type: file.type,
@@ -62,7 +57,6 @@ export async function uploadVerifiedPhoto(
   }
 
   const verifyRes = await wmsFetch("/api/img/verify", {
-    idToken,
     method: "POST",
     body: JSON.stringify({ file_id: signJson.file_id }),
   });
@@ -87,7 +81,6 @@ export default function InventoryForm({
   existingPhotos = [],
   pendingPhotos,
   onPendingPhotosChange,
-  idToken,
   submitLabel,
   busy,
   error,
@@ -113,7 +106,7 @@ export default function InventoryForm({
     setPhotoBusy(true);
     setPhotoError(null);
     try {
-      const photo = await uploadVerifiedPhoto(idToken, file);
+      const photo = await uploadVerifiedPhoto(file);
       onPendingPhotosChange([...pendingPhotos, photo]);
     } catch (cause) {
       setPhotoError(

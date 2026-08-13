@@ -2,7 +2,6 @@
 
 import { useAuthContext } from "@/context/AuthContext";
 import { wmsFetch } from "@/lib/api/wmsFetch";
-import { type User } from "firebase/auth";
 import { useParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
@@ -25,14 +24,18 @@ type OrderDetail = {
   lines: OrderLine[];
 };
 
-type CatalogItem = { id: string; name: string };
+type CatalogItem = {
+  id: string;
+  name: string;
+  warehouse?: { id: string; name: string } | null;
+};
 
 function dateInputValue(value: string | null) {
   return value ? value.slice(0, 10) : "";
 }
 
 export default function OrderDetailPage() {
-  const { user } = useAuthContext() as { user: User | null };
+  const { user } = useAuthContext();
   const params = useParams<{ orderId: string }>();
   const orderId = params.orderId;
 
@@ -68,15 +71,12 @@ export default function OrderDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const idToken = await user.getIdToken();
-      const [orderRes, statusRes, meRes] = await Promise.all([
-        wmsFetch(`/api/order/${orderId}`, { idToken }),
-        wmsFetch("/api/lookup/order-statuses", { idToken }),
-        wmsFetch("/api/me", { idToken }),
+      const [orderRes, statusRes] = await Promise.all([
+        wmsFetch(`/api/order/${orderId}`),
+        wmsFetch("/api/lookup/order-statuses"),
       ]);
       const orderJson = await orderRes.json();
       const statusJson = await statusRes.json();
-      const meJson = await meRes.json();
       if (!orderRes.ok) {
         throw new Error(orderJson.message ?? "Order not found");
       }
@@ -86,17 +86,11 @@ export default function OrderDetailPage() {
       applyOrder(orderJson.order);
       setStatuses(statusJson.statuses);
 
-      const warehouseId = meJson.warehouse?.id as string | undefined;
-      if (warehouseId) {
-        const itemRes = await wmsFetch(
-          `/api/warehouse/${warehouseId}/item`,
-          { idToken },
-        );
-        const itemJson = await itemRes.json();
-        if (itemRes.ok) {
-          setItems(itemJson.items);
-          setItemId((current) => current || itemJson.items[0]?.id || "");
-        }
+      const itemRes = await wmsFetch("/api/inventory?archived=0");
+      const itemJson = await itemRes.json();
+      if (itemRes.ok) {
+        setItems(itemJson.items);
+        setItemId((current) => current || itemJson.items[0]?.id || "");
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to load order");
@@ -110,8 +104,7 @@ export default function OrderDetailPage() {
   }, [load]);
 
   const authedJson = async (path: string, init: RequestInit) => {
-    const idToken = await user!.getIdToken();
-    const response = await wmsFetch(path, { ...init, idToken });
+    const response = await wmsFetch(path, init);
     const json = await response.json();
     if (!response.ok) {
       throw new Error(json.message ?? "Request failed");
@@ -314,6 +307,7 @@ export default function OrderDetailPage() {
                 items.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
+                    {item.warehouse?.name ? ` (${item.warehouse.name})` : ""}
                   </option>
                 ))
               )}

@@ -2,12 +2,11 @@
 
 import { useAuthContext } from "@/context/AuthContext";
 import { wmsFetch } from "@/lib/api/wmsFetch";
-import { type User } from "firebase/auth";
 import Link from "next/link";
 import { useState } from "react";
 
 export default function AdminPage() {
-  const { user } = useAuthContext() as { user: User | null };
+  const { user, warehouseId } = useAuthContext();
   const [apiStatus, setApiStatus] = useState<string | null>(null);
   const [apiBusy, setApiBusy] = useState(false);
 
@@ -19,27 +18,18 @@ export default function AdminPage() {
     setApiBusy(true);
     setApiStatus(null);
     try {
-      const idToken = await user.getIdToken();
-      const [healthRes, meRes] = await Promise.all([
-        wmsFetch("/api/health", { idToken }),
-        wmsFetch("/api/me", { idToken }),
-      ]);
+      const healthRes = await wmsFetch("/api/health");
       const health = await healthRes.json();
-      const me = await meRes.json();
 
-      if (!healthRes.ok || !meRes.ok) {
+      if (!healthRes.ok) {
         setApiStatus(
-          `Failed — health ${healthRes.status}, me ${meRes.status}. Check DATABASE_URL + FIREBASE_ADMIN_* in .env.local.`,
+          `Failed — health ${healthRes.status}. Check DATABASE_URL in .env.local.`,
         );
         return;
       }
 
-      if (me.tokenRefreshRequired) {
-        await user.getIdToken(true);
-      }
-
       setApiStatus(
-        `OK — db ${health.db}; Prisma user ${me.user?.email} (${me.user?.id}); warehouse ${me.warehouse?.name} (${me.role?.code})`,
+        `OK — db ${health.db}; signed in as ${user.email}; warehouse ${warehouseId ?? "none on token"}`,
       );
     } catch (error) {
       setApiStatus(
@@ -61,8 +51,7 @@ export default function AdminPage() {
         </h2>
         <p className="mt-2 text-sm text-brown-600">
           Calls <code className="text-brown-800">/api/health</code> (SELECT 1)
-          and <code className="text-brown-800">/api/me</code> (User + warehouse
-          membership) with your Firebase ID token.
+          with the Firebase ID token from the SDK.
         </p>
         <button
           type="button"

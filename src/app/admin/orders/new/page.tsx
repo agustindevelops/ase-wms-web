@@ -2,12 +2,11 @@
 
 import { useAuthContext } from "@/context/AuthContext";
 import { wmsFetch } from "@/lib/api/wmsFetch";
-import { type User } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 export default function NewOrderPage() {
-  const { user } = useAuthContext() as { user: User | null };
+  const { user } = useAuthContext();
   const router = useRouter();
   const [name, setName] = useState("");
   const [eventDate, setEventDate] = useState("");
@@ -23,9 +22,7 @@ export default function NewOrderPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const idToken = await user.getIdToken();
       const response = await wmsFetch("/api/order", {
-        idToken,
         method: "POST",
         body: JSON.stringify({
           name,
