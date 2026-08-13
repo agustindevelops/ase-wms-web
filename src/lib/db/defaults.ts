@@ -131,3 +131,21 @@ export const ITEM_MATERIALS = [
   { code: "FABRIC", name: "Fabric" },
   { code: "WOOD", name: "Wood" },
 ] as const;
+
+/** Item.condition picker values (not a DB lookup table). */
+export const ITEM_CONDITIONS = [
+  { code: "NEW", name: "New" },
+  { code: "GOOD", name: "Good" },
+  { code: "FAIR", name: "Fair" },
+  { code: "DAMAGED", name: "Damaged" },
+] as const;
+
+/** Item.disposition picker values (not a DB lookup table). */
+export const ITEM_DISPOSITIONS = [
+  { code: "BUSINESS", name: "Business" },
+  { code: "PERSONAL", name: "Personal" },
+  { code: "SELL", name: "Sell" },
+  { code: "DISCARD", name: "Discard" },
+] as const;
+
+export const ARCHIVED_DISPOSITION_CODES = ["SELL", "DISCARD"] as const;

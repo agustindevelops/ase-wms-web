@@ -75,6 +75,12 @@ export default function AdminLayout({
             >
               Orders
             </Link>
+            <Link
+              href="/admin/inventory"
+              className={navClass(pathname.startsWith("/admin/inventory"))}
+            >
+              Inventory
+            </Link>
             <button
               type="button"
               onClick={handleSignOut}

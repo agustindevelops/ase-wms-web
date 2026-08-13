@@ -87,19 +87,16 @@ export default function AdminPage() {
             View orders, create an event order, and add items.
           </p>
         </Link>
-        <div className="rounded-2xl border border-brown-200 bg-white/60 p-6">
+        <Link
+          href="/admin/inventory"
+          className="rounded-2xl border border-brown-200 bg-white/60 p-6 transition hover:border-green-500"
+        >
           <h2 className="font-nickainley text-2xl text-brown-800">Inventory</h2>
           <p className="mt-2 text-sm text-brown-600">
-            Asset tracking and stock views will live here via Prisma APIs.
+            Search, edit detailed records, attach photos, and add items to
+            orders.
           </p>
-        </div>
-        <div className="rounded-2xl border border-brown-200 bg-white/60 p-6">
-          <h2 className="font-nickainley text-2xl text-brown-800">Labels</h2>
-          <p className="mt-2 text-sm text-brown-600">
-            Pair with ase-wms-app barcode printing. Use the same Firebase Auth
-            ID token for cross-app API calls.
-          </p>
-        </div>
+        </Link>
       </div>
     </section>
   );

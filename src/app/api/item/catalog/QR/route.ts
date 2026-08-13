@@ -4,6 +4,7 @@ import { requireWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
 import {
   createItemQrCode,
   parseItemId,
+  withItemReadUrls,
 } from "@/lib/item/catalogService";
 import {
   CatalogServiceError,
@@ -39,7 +40,10 @@ export async function POST(request: Request) {
     }
 
     const result = await createItemQrCode(auth.warehouseId, itemId);
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json(
+      { ...result, item: await withItemReadUrls(result.item) },
+      { status: 201 },
+    );
   } catch (error) {
     return toCatalogErrorResponse(error);
   }

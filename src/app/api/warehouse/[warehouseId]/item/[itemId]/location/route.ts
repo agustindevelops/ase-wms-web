@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import { requireWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
-import { unbindItemFromLocation } from "@/lib/item/catalogService";
+import { unbindItemFromLocation, withItemReadUrls } from "@/lib/item/catalogService";
 import { toCatalogErrorResponse } from "@/lib/item/errors";
 
 export const runtime = "nodejs";
@@ -28,7 +28,9 @@ export async function DELETE(
   }
 
   try {
-    const item = await unbindItemFromLocation(auth.warehouseId, itemId);
+    const item = await withItemReadUrls(
+      await unbindItemFromLocation(auth.warehouseId, itemId),
+    );
     return NextResponse.json({ item });
   } catch (error) {
     return toCatalogErrorResponse(error);

@@ -258,7 +258,7 @@ export async function updateOrder(
   });
 }
 
-export async function addOrderLine(
+export async function addOrUpdateOrderLine(
   orderId: string,
   input: OrderLineCreateInput,
 ): Promise<OrderDetailRecord> {
@@ -277,12 +277,19 @@ export async function addOrderLine(
       orderId_itemId: { orderId, itemId: input.itemId },
     },
   });
+
   if (existing) {
-    throw new OrderServiceError(
-      "Conflict",
-      "Item is already on this order; update qty instead",
-      409,
-    );
+    if (input.qtyRequested < existing.qtyPicked) {
+      throw new OrderServiceError(
+        "Bad Request",
+        `qtyRequested cannot be below qtyPicked (${existing.qtyPicked})`,
+      );
+    }
+    await prisma.orderLine.update({
+      where: { id: existing.id },
+      data: { qtyRequested: input.qtyRequested },
+    });
+    return getOrder(orderId);
   }
 
   await prisma.orderLine.create({

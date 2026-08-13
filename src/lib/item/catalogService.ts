@@ -2,11 +2,16 @@ import "server-only";
 
 import type { Prisma } from "@/generated/prisma/client";
 import {
+  ARCHIVED_DISPOSITION_CODES,
+  ITEM_CONDITIONS,
+  ITEM_DISPOSITIONS,
+  ITEM_MATERIALS,
   QR_CODE_TYPE_ITEM,
   QR_CODE_TYPE_LOCATION,
 } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
 import { CatalogServiceError } from "@/lib/item/errors";
+import { getReadUrl } from "@/lib/storage/s3";
 
 const itemInclude = {
   category: { select: { id: true, code: true, name: true } },
@@ -29,6 +34,7 @@ const itemInclude = {
       status: true,
       sortOrder: true,
       contentType: true,
+      s3Key: true,
     },
     orderBy: { sortOrder: "asc" as const },
   },
@@ -38,6 +44,29 @@ export type ItemRecord = Prisma.ItemGetPayload<{
   include: typeof itemInclude;
 }>;
 
+export type ItemFilePublic = {
+  id: string;
+  publicUrl: string | null;
+  status: string;
+  sortOrder: number;
+  contentType: string;
+  readUrl: string | null;
+};
+
+export type ItemPublicRecord = Omit<ItemRecord, "files"> & {
+  files: ItemFilePublic[];
+};
+
+export type CatalogDetailFields = {
+  description: string | null;
+  unitRentalPrice: string | null;
+  purchaseLink: string | null;
+  replacementCost: string | null;
+  condition: string | null;
+  disposition: string | null;
+  notes: string | null;
+};
+
 export type CatalogCreateInput = {
   warehouseId: string;
   name: string;
@@ -46,7 +75,15 @@ export type CatalogCreateInput = {
   photoFileIds: string[];
   categoryId: string | null;
   material: string | null;
-};
+} & CatalogDetailFields;
+
+export type CatalogUpdateInput = {
+  name?: string;
+  quantityOwned?: number;
+  categoryId?: string | null;
+  material?: string | null;
+  photoFileIds?: string[];
+} & Partial<CatalogDetailFields>;
 
 function asOptionalString(
   value: unknown,
@@ -61,13 +98,16 @@ function asOptionalString(
   return value.trim() || null;
 }
 
-function parsePhotoFileIds(body: Record<string, unknown>): string[] {
+function parsePhotoFileIds(
+  body: Record<string, unknown>,
+  required: boolean,
+): string[] {
   if (Array.isArray(body.photoFileIds)) {
     const ids = body.photoFileIds
       .filter((id): id is string => typeof id === "string")
       .map((id) => id.trim())
       .filter(Boolean);
-    if (ids.length === 0) {
+    if (required && ids.length === 0) {
       throw new CatalogServiceError(
         "Bad Request",
         "photoFileIds must include at least one verified file id",
@@ -76,16 +116,90 @@ function parsePhotoFileIds(body: Record<string, unknown>): string[] {
     return [...new Set(ids)];
   }
 
-  // Backward-compatible single-photo field.
   const photoFileId =
     typeof body.photoFileId === "string" ? body.photoFileId.trim() : "";
-  if (!photoFileId) {
+  if (photoFileId) {
+    return [photoFileId];
+  }
+  if (required) {
     throw new CatalogServiceError(
       "Bad Request",
       "photoFileIds (or photoFileId) is required",
     );
   }
-  return [photoFileId];
+  return [];
+}
+
+function asOptionalMoney(value: unknown, field: string): string | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const raw =
+    typeof value === "number"
+      ? value.toString()
+      : typeof value === "string"
+        ? value.trim()
+        : null;
+  if (raw === null || !/^\d+(\.\d{1,2})?$/.test(raw)) {
+    throw new CatalogServiceError(
+      "Bad Request",
+      `${field} must be a non-negative amount with up to 2 decimal places`,
+    );
+  }
+  return raw;
+}
+
+function asLookupCode(
+  value: string | null,
+  field: string,
+  allowed: readonly { code: string }[],
+): string | null {
+  if (!value) {
+    return null;
+  }
+  if (!allowed.some((option) => option.code === value)) {
+    throw new CatalogServiceError(
+      "Bad Request",
+      `${field} must be one of: ${allowed.map((option) => option.code).join(", ")}`,
+    );
+  }
+  return value;
+}
+
+function parseDetailFields(body: Record<string, unknown>): CatalogDetailFields {
+  return {
+    description: asOptionalString(body.description, "description"),
+    unitRentalPrice: asOptionalMoney(body.unitRentalPrice, "unitRentalPrice"),
+    purchaseLink: asOptionalString(body.purchaseLink, "purchaseLink"),
+    replacementCost: asOptionalMoney(body.replacementCost, "replacementCost"),
+    condition: asLookupCode(
+      asOptionalString(body.condition, "condition"),
+      "condition",
+      ITEM_CONDITIONS,
+    ),
+    disposition: asLookupCode(
+      asOptionalString(body.disposition, "disposition"),
+      "disposition",
+      ITEM_DISPOSITIONS,
+    ),
+    notes: asOptionalString(body.notes, "notes"),
+  };
+}
+
+function parsePositiveInt(value: unknown, field: string): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new CatalogServiceError(
+      "Bad Request",
+      `${field} must be an integer greater than 0`,
+    );
+  }
+  return parsed;
 }
 
 export function parseCatalogCreateInput(
@@ -102,29 +216,133 @@ export function parseCatalogCreateInput(
     throw new CatalogServiceError("Bad Request", "name is required");
   }
 
-  const quantityRaw = body.quantity;
-  const quantity =
-    typeof quantityRaw === "number"
-      ? quantityRaw
-      : typeof quantityRaw === "string"
-        ? Number(quantityRaw)
-        : Number.NaN;
-
-  if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw new CatalogServiceError(
-      "Bad Request",
-      "quantity must be an integer greater than 0",
-    );
-  }
+  const details = parseDetailFields(body);
+  const material = asLookupCode(
+    asOptionalString(body.material, "material"),
+    "material",
+    ITEM_MATERIALS,
+  );
 
   return {
     warehouseId,
     name,
-    quantity,
-    photoFileIds: parsePhotoFileIds(body),
+    quantity: parsePositiveInt(body.quantity, "quantity"),
+    photoFileIds: parsePhotoFileIds(body, true),
     categoryId: asOptionalString(body.categoryId, "categoryId"),
-    material: asOptionalString(body.material, "material"),
+    material,
+    ...details,
   };
+}
+
+export function parseCatalogUpdateInput(
+  body: Record<string, unknown>,
+): CatalogUpdateInput {
+  const input: CatalogUpdateInput = {};
+
+  if (body.name !== undefined) {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) {
+      throw new CatalogServiceError("Bad Request", "name is required");
+    }
+    input.name = name;
+  }
+
+  const quantityRaw =
+    body.quantityOwned !== undefined ? body.quantityOwned : body.quantity;
+  if (quantityRaw !== undefined) {
+    input.quantityOwned = parsePositiveInt(quantityRaw, "quantityOwned");
+  }
+
+  if (body.categoryId !== undefined) {
+    input.categoryId = asOptionalString(body.categoryId, "categoryId");
+  }
+  if (body.material !== undefined) {
+    input.material = asLookupCode(
+      asOptionalString(body.material, "material"),
+      "material",
+      ITEM_MATERIALS,
+    );
+  }
+  if (body.description !== undefined) {
+    input.description = asOptionalString(body.description, "description");
+  }
+  if (body.unitRentalPrice !== undefined) {
+    input.unitRentalPrice = asOptionalMoney(
+      body.unitRentalPrice,
+      "unitRentalPrice",
+    );
+  }
+  if (body.purchaseLink !== undefined) {
+    input.purchaseLink = asOptionalString(body.purchaseLink, "purchaseLink");
+  }
+  if (body.replacementCost !== undefined) {
+    input.replacementCost = asOptionalMoney(
+      body.replacementCost,
+      "replacementCost",
+    );
+  }
+  if (body.condition !== undefined) {
+    input.condition = asLookupCode(
+      asOptionalString(body.condition, "condition"),
+      "condition",
+      ITEM_CONDITIONS,
+    );
+  }
+  if (body.disposition !== undefined) {
+    input.disposition = asLookupCode(
+      asOptionalString(body.disposition, "disposition"),
+      "disposition",
+      ITEM_DISPOSITIONS,
+    );
+  }
+  if (body.notes !== undefined) {
+    input.notes = asOptionalString(body.notes, "notes");
+  }
+  if (body.photoFileIds !== undefined || body.photoFileId !== undefined) {
+    input.photoFileIds = parsePhotoFileIds(body, false);
+  }
+
+  if (Object.keys(input).length === 0) {
+    throw new CatalogServiceError(
+      "Bad Request",
+      "Provide at least one field to update",
+    );
+  }
+
+  return input;
+}
+
+export async function withItemReadUrls(
+  item: ItemRecord,
+): Promise<ItemPublicRecord> {
+  const files = await Promise.all(
+    item.files.map(async (file) => {
+      let readUrl: string | null = file.publicUrl;
+      if (!readUrl && file.status === "uploaded") {
+        try {
+          readUrl = await getReadUrl(file.s3Key);
+        } catch {
+          readUrl = null;
+        }
+      }
+      return {
+        id: file.id,
+        publicUrl: file.publicUrl,
+        status: file.status,
+        sortOrder: file.sortOrder,
+        contentType: file.contentType,
+        readUrl,
+      };
+    }),
+  );
+  const { files: _files, ...rest } = item;
+  return { ...rest, files };
+}
+
+export async function withItemsReadUrls(
+  items: ItemRecord[],
+): Promise<ItemPublicRecord[]> {
+  return Promise.all(items.map((item) => withItemReadUrls(item)));
 }
 
 export async function listItemCategories() {
@@ -197,6 +415,13 @@ export async function createCatalogItem(
         quantityAvailable: input.quantity,
         categoryId: input.categoryId,
         material: input.material,
+        description: input.description,
+        unitRentalPrice: input.unitRentalPrice,
+        purchaseLink: input.purchaseLink,
+        replacementCost: input.replacementCost,
+        condition: input.condition,
+        disposition: input.disposition,
+        notes: input.notes,
       },
     });
 
@@ -433,6 +658,14 @@ export async function bindItemToLocationUnit(
 }
 
 export type WarehouseItemLocationFilter = "none" | "set" | "all";
+export type WarehouseItemArchivedFilter = "0" | "1" | "all";
+
+export type WarehouseItemListFilters = {
+  location: WarehouseItemLocationFilter;
+  q?: string;
+  categoryId?: string;
+  archived: WarehouseItemArchivedFilter;
+};
 
 export function parseWarehouseItemLocationFilter(
   value: string | null,
@@ -449,21 +682,218 @@ export function parseWarehouseItemLocationFilter(
   );
 }
 
+export function parseWarehouseItemArchivedFilter(
+  value: string | null,
+): WarehouseItemArchivedFilter {
+  if (value === null || value === "" || value === "0") {
+    return "0";
+  }
+  if (value === "1" || value === "all") {
+    return value;
+  }
+  throw new CatalogServiceError(
+    "Bad Request",
+    "archived query must be 0, 1, or all",
+  );
+}
+
+export function parseWarehouseItemListFilters(
+  searchParams: URLSearchParams,
+): WarehouseItemListFilters {
+  const q = searchParams.get("q")?.trim() || undefined;
+  const categoryId = searchParams.get("categoryId")?.trim() || undefined;
+  return {
+    location: parseWarehouseItemLocationFilter(searchParams.get("location")),
+    q,
+    categoryId,
+    archived: parseWarehouseItemArchivedFilter(searchParams.get("archived")),
+  };
+}
+
+const archivedDispositionCodes: string[] = [...ARCHIVED_DISPOSITION_CODES];
+
 export async function listWarehouseItems(
   warehouseId: string,
-  location: WarehouseItemLocationFilter,
+  filters: WarehouseItemListFilters,
 ): Promise<ItemRecord[]> {
   return prisma.item.findMany({
     where: {
       warehouseId,
-      ...(location === "none"
+      ...(filters.location === "none"
         ? { locationUnitId: null }
-        : location === "set"
+        : filters.location === "set"
           ? { locationUnitId: { not: null } }
+          : {}),
+      ...(filters.q
+        ? { name: { contains: filters.q, mode: "insensitive" } }
+        : {}),
+      ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
+      ...(filters.archived === "0"
+        ? {
+            OR: [
+              { disposition: null },
+              { disposition: { notIn: archivedDispositionCodes } },
+            ],
+          }
+        : filters.archived === "1"
+          ? { disposition: { in: archivedDispositionCodes } }
           : {}),
     },
     include: itemInclude,
     orderBy: { name: "asc" },
+  });
+}
+
+export async function getWarehouseItem(
+  warehouseId: string,
+  itemId: string,
+): Promise<ItemRecord> {
+  const item = await prisma.item.findFirst({
+    where: { id: itemId, warehouseId },
+    include: itemInclude,
+  });
+  if (!item) {
+    throw new CatalogServiceError(
+      "ITEM_NOT_FOUND",
+      "Item not found in this warehouse",
+      404,
+    );
+  }
+  return item;
+}
+
+async function assertVerifiedUnattachedFiles(
+  tx: Pick<typeof prisma, "file">,
+  photoFileIds: string[],
+) {
+  if (photoFileIds.length === 0) {
+    return;
+  }
+  const files = await tx.file.findMany({
+    where: { id: { in: photoFileIds } },
+  });
+  if (files.length !== photoFileIds.length) {
+    throw new CatalogServiceError(
+      "FILE_NOT_FOUND",
+      "One or more photoFileIds were not found",
+      404,
+    );
+  }
+  const byId = new Map(files.map((file) => [file.id, file]));
+  for (const fileId of photoFileIds) {
+    const file = byId.get(fileId);
+    if (!file) {
+      throw new CatalogServiceError(
+        "FILE_NOT_FOUND",
+        "One or more photoFileIds were not found",
+        404,
+      );
+    }
+    if (file.status !== "uploaded") {
+      throw new CatalogServiceError(
+        "FILE_NOT_VERIFIED",
+        "Photo only attaches after verified file upload",
+        400,
+      );
+    }
+    if (file.itemId) {
+      throw new CatalogServiceError(
+        "FILE_ALREADY_ATTACHED",
+        "Photo file is already attached to an item",
+        409,
+      );
+    }
+  }
+}
+
+export async function updateWarehouseItem(
+  warehouseId: string,
+  itemId: string,
+  input: CatalogUpdateInput,
+): Promise<ItemRecord> {
+  if (input.categoryId) {
+    const category = await prisma.itemCategory.findUnique({
+      where: { id: input.categoryId },
+    });
+    if (!category) {
+      throw new CatalogServiceError(
+        "CATEGORY_NOT_FOUND",
+        "categoryId was not found",
+        404,
+      );
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.item.findFirst({
+      where: { id: itemId, warehouseId },
+      include: { files: { select: { sortOrder: true } } },
+    });
+    if (!existing) {
+      throw new CatalogServiceError(
+        "ITEM_NOT_FOUND",
+        "Item not found in this warehouse",
+        404,
+      );
+    }
+
+    const photoFileIds = input.photoFileIds ?? [];
+    await assertVerifiedUnattachedFiles(tx, photoFileIds);
+
+    await tx.item.update({
+      where: { id: existing.id },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.quantityOwned !== undefined
+          ? {
+              quantityOwned: input.quantityOwned,
+              quantityAvailable: input.quantityOwned,
+            }
+          : {}),
+        ...(input.categoryId !== undefined
+          ? { categoryId: input.categoryId }
+          : {}),
+        ...(input.material !== undefined ? { material: input.material } : {}),
+        ...(input.description !== undefined
+          ? { description: input.description }
+          : {}),
+        ...(input.unitRentalPrice !== undefined
+          ? { unitRentalPrice: input.unitRentalPrice }
+          : {}),
+        ...(input.purchaseLink !== undefined
+          ? { purchaseLink: input.purchaseLink }
+          : {}),
+        ...(input.replacementCost !== undefined
+          ? { replacementCost: input.replacementCost }
+          : {}),
+        ...(input.condition !== undefined ? { condition: input.condition } : {}),
+        ...(input.disposition !== undefined
+          ? { disposition: input.disposition }
+          : {}),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      },
+    });
+
+    if (photoFileIds.length > 0) {
+      const nextSort =
+        existing.files.reduce(
+          (max, file) => Math.max(max, file.sortOrder),
+          -1,
+        ) + 1;
+      await Promise.all(
+        photoFileIds.map((fileId, index) =>
+          tx.file.update({
+            where: { id: fileId },
+            data: { itemId: existing.id, sortOrder: nextSort + index },
+          }),
+        ),
+      );
+    }
+
+    return tx.item.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: itemInclude,
+    });
   });
 }
 

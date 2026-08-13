@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import { requireWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
-import { bindItemToLocationUnit } from "@/lib/item/catalogService";
+import { bindItemToLocationUnit, withItemReadUrls } from "@/lib/item/catalogService";
 import { toCatalogErrorResponse } from "@/lib/item/errors";
 
 export const runtime = "nodejs";
@@ -37,10 +37,12 @@ export async function PUT(
   }
 
   try {
-    const item = await bindItemToLocationUnit(
-      auth.warehouseId,
-      locationUnitId,
-      itemId,
+    const item = await withItemReadUrls(
+      await bindItemToLocationUnit(
+        auth.warehouseId,
+        locationUnitId,
+        itemId,
+      ),
     );
     return NextResponse.json({ item });
   } catch (error) {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAuthFailure, requireAdmin } from "@/lib/auth/requireAuth";
 import {
-  addOrderLine,
+  addOrUpdateOrderLine,
   parseOrderLineCreateInput,
 } from "@/lib/order/orderService";
 import { readJsonObject, toOrderErrorResponse } from "@/lib/order/errors";
@@ -14,7 +14,7 @@ type RouteContext = {
 
 /**
  * POST /api/order/{orderId}/line
- * Add an order line (itemId + qtyRequested).
+ * Create or update an order line (itemId + qtyRequested).
  */
 export async function POST(request: Request, context: RouteContext) {
   const auth = await requireAdmin(request);
@@ -30,7 +30,7 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const { orderId } = await context.params;
     const input = parseOrderLineCreateInput(parsed.value);
-    const order = await addOrderLine(orderId, input);
+    const order = await addOrUpdateOrderLine(orderId, input);
     return NextResponse.json({ order }, { status: 201 });
   } catch (error) {
     return toOrderErrorResponse(error);

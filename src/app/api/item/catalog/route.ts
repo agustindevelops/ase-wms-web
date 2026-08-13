@@ -4,6 +4,7 @@ import { requireWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
 import {
   createCatalogItem,
   parseCatalogCreateInput,
+  withItemReadUrls,
 } from "@/lib/item/catalogService";
 import {
   readJsonObject,
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
       return auth.response;
     }
 
-    const item = await createCatalogItem(input);
+    const item = await withItemReadUrls(await createCatalogItem(input));
     return NextResponse.json({ item }, { status: 201 });
   } catch (error) {
     return toCatalogErrorResponse(error);
