@@ -1,20 +1,20 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsFetch } from "@/lib/api/wmsFetch";
+import { wmsFetch, wmsJson } from "@/lib/api/wmsFetch";
+import { useInventoryLookups } from "@/lib/query/lookups";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import InventoryForm, { type PendingPhoto } from "../InventoryForm";
 import {
   emptyInventoryForm,
   fieldClass,
   formToPayload,
   itemToForm,
-  type CategoryOption,
   type InventoryFormValues,
   type InventoryItem,
-  type LookupOption,
 } from "../inventoryTypes";
 
 type OrderListItem = {
@@ -25,82 +25,47 @@ type OrderListItem = {
 
 export default function EditInventoryPage() {
   const { user } = useAuthContext();
+  const userId = user?.uid;
+  const lookups = useInventoryLookups();
+  const queryClient = useQueryClient();
   const params = useParams<{ itemId: string }>();
   const itemId = params.itemId;
 
   const [item, setItem] = useState<InventoryItem | null>(null);
   const [values, setValues] = useState<InventoryFormValues>(emptyInventoryForm);
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
-  const [materials, setMaterials] = useState<LookupOption[]>([]);
-  const [conditions, setConditions] = useState<LookupOption[]>([]);
-  const [dispositions, setDispositions] = useState<LookupOption[]>([]);
-  const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [orderId, setOrderId] = useState("");
   const [qtyRequested, setQtyRequested] = useState("1");
   const [orderMessage, setOrderMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    if (!user || !itemId) {
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const [itemRes, catRes, matRes, condRes, dispRes, orderRes] =
-        await Promise.all([
-          wmsFetch(`/api/inventory/${itemId}`),
-          wmsFetch("/api/lookup/item-categories"),
-          wmsFetch("/api/lookup/materials"),
-          wmsFetch("/api/lookup/item-conditions"),
-          wmsFetch("/api/lookup/item-dispositions"),
-          wmsFetch("/api/order"),
-        ]);
-      const itemJson = await itemRes.json();
-      const catJson = await catRes.json();
-      const matJson = await matRes.json();
-      const condJson = await condRes.json();
-      const dispJson = await dispRes.json();
-      const orderJson = await orderRes.json();
-      if (!itemRes.ok) {
-        throw new Error(itemJson.message ?? "Item not found");
-      }
-      if (!catRes.ok) {
-        throw new Error(catJson.message ?? "Could not load categories");
-      }
-      if (!matRes.ok) {
-        throw new Error(matJson.message ?? "Could not load materials");
-      }
-      if (!condRes.ok) {
-        throw new Error(condJson.message ?? "Could not load conditions");
-      }
-      if (!dispRes.ok) {
-        throw new Error(dispJson.message ?? "Could not load dispositions");
-      }
-      if (!orderRes.ok) {
-        throw new Error(orderJson.message ?? "Could not load orders");
-      }
-      setItem(itemJson.item);
-      setValues(itemToForm(itemJson.item));
-      setCategories(catJson.categories);
-      setMaterials(matJson.materials);
-      setConditions(condJson.conditions);
-      setDispositions(dispJson.dispositions);
-      setOrders(orderJson.orders);
-      setOrderId((current) => current || orderJson.orders[0]?.id || "");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to load item");
-    } finally {
-      setLoading(false);
-    }
-  }, [user, itemId]);
+  const itemQuery = useQuery({
+    queryKey: ["inventory-item", itemId],
+    queryFn: () => wmsJson<{ item: InventoryItem }>(`/api/inventory/${itemId}`),
+    enabled: Boolean(userId && itemId),
+  });
+  const ordersQuery = useQuery({
+    queryKey: ["orders"],
+    queryFn: () => wmsJson<{ orders: OrderListItem[] }>("/api/order"),
+    enabled: Boolean(userId),
+  });
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!itemQuery.data?.item) {
+      return;
+    }
+    setItem(itemQuery.data.item);
+    setValues(itemToForm(itemQuery.data.item));
+  }, [itemQuery.data]);
+
+  useEffect(() => {
+    const nextOrders = ordersQuery.data?.orders ?? [];
+    setOrderId((current) => current || nextOrders[0]?.id || "");
+  }, [ordersQuery.data]);
+
+  const orders = ordersQuery.data?.orders ?? [];
+  const loading = itemQuery.isLoading || ordersQuery.isLoading;
 
   if (!user) {
     return null;
@@ -131,6 +96,8 @@ export default function EditInventoryPage() {
       }
       setItem(json.item);
       setValues(itemToForm(json.item));
+      queryClient.setQueryData(["inventory-item", itemId], { item: json.item });
+      await queryClient.invalidateQueries({ queryKey: ["inventory"] });
       pendingPhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
       setPendingPhotos([]);
     } catch (cause) {
@@ -168,10 +135,15 @@ export default function EditInventoryPage() {
     }
   };
 
-  if (loading) {
+  if (loading || lookups.isLoading) {
     return (
       <section className="mx-auto max-w-3xl px-4 py-12">
-        <p className="text-sm text-brown-500">Loading…</p>
+        <p className="text-sm text-brown-500">
+          {lookups.error ??
+            (itemQuery.error instanceof Error
+              ? itemQuery.error.message
+              : "Loading…")}
+        </p>
       </section>
     );
   }
@@ -179,7 +151,12 @@ export default function EditInventoryPage() {
   if (!item) {
     return (
       <section className="mx-auto max-w-3xl px-4 py-12">
-        <p className="text-sm text-peach-700">{error ?? "Item not found"}</p>
+        <p className="text-sm text-peach-700">
+          {error ??
+            (itemQuery.error instanceof Error
+              ? itemQuery.error.message
+              : "Item not found")}
+        </p>
       </section>
     );
   }
@@ -210,10 +187,10 @@ export default function EditInventoryPage() {
       <InventoryForm
         values={values}
         onChange={setValues}
-        categories={categories}
-        materials={materials}
-        conditions={conditions}
-        dispositions={dispositions}
+        categories={lookups.categories}
+        materials={lookups.materials}
+        conditions={lookups.conditions}
+        dispositions={lookups.dispositions}
         existingPhotos={item.files}
         pendingPhotos={pendingPhotos}
         onPendingPhotosChange={setPendingPhotos}

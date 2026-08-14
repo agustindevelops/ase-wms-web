@@ -1,17 +1,20 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsFetch } from "@/lib/api/wmsFetch";
+import { wmsJson } from "@/lib/api/wmsFetch";
+import {
+  useOrderStatuses,
+  type OrderStatusOption,
+} from "@/lib/query/lookups";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-
-type OrderStatus = { id: string; code: string; name: string };
+import { useState } from "react";
 
 type OrderListItem = {
   id: string;
   name: string;
   eventDate: string | null;
-  status: OrderStatus;
+  status: OrderStatusOption;
   _count: { lines: number };
 };
 
@@ -24,48 +27,33 @@ function formatEventDate(value: string | null) {
 
 export default function OrdersPage() {
   const { user } = useAuthContext();
-  const [statuses, setStatuses] = useState<OrderStatus[]>([]);
+  const userId = user?.uid;
+  const { data: statuses = [], error: statusesError } = useOrderStatuses();
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
-  const [orders, setOrders] = useState<OrderListItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    if (!user) {
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
+  const ordersQuery = useQuery({
+    queryKey: ["orders", selectedCodes],
+    queryFn: () => {
       const params = new URLSearchParams();
       for (const code of selectedCodes) {
         params.append("status", code);
       }
       const query = params.toString();
-      const [statusRes, orderRes] = await Promise.all([
-        wmsFetch("/api/lookup/order-statuses"),
-        wmsFetch(query ? `/api/order?${query}` : "/api/order"),
-      ]);
-      const statusJson = await statusRes.json();
-      const orderJson = await orderRes.json();
-      if (!statusRes.ok) {
-        throw new Error(statusJson.message ?? "Could not load statuses");
-      }
-      if (!orderRes.ok) {
-        throw new Error(orderJson.message ?? "Could not load orders");
-      }
-      setStatuses(statusJson.statuses);
-      setOrders(orderJson.orders);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to load orders");
-    } finally {
-      setLoading(false);
-    }
-  }, [user, selectedCodes]);
+      return wmsJson<{ orders: OrderListItem[] }>(
+        query ? `/api/order?${query}` : "/api/order",
+      );
+    },
+    enabled: Boolean(userId),
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const orders = ordersQuery.data?.orders ?? [];
+  const loading = ordersQuery.isLoading;
+  const error =
+    ordersQuery.error instanceof Error
+      ? ordersQuery.error.message
+      : ordersQuery.error
+        ? "Failed to load orders"
+        : null;
 
   const toggleStatus = (code: string) => {
     setSelectedCodes((current) =>
@@ -125,9 +113,12 @@ export default function OrdersPage() {
         ) : null}
       </div>
 
-      {error ? (
+      {error || statusesError ? (
         <p className="mt-6 text-sm text-peach-700" role="alert">
-          {error}
+          {error ??
+            (statusesError instanceof Error
+              ? statusesError.message
+              : "Could not load statuses")}
         </p>
       ) : null}
 

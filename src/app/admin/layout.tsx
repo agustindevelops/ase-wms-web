@@ -3,6 +3,8 @@
 import { useAuthContext } from "@/context/AuthContext";
 import LoadingOverlay from "@/components/LoadingOverlay";
 import { getFirebaseAuth } from "@/firebase/config";
+import { prefetchLookups } from "@/lib/query/lookups";
+import { useQueryClient } from "@tanstack/react-query";
 import { signOut, type User } from "firebase/auth";
 import Image from "next/image";
 import Link from "next/link";
@@ -23,12 +25,19 @@ export default function AdminLayout({
   const { user } = useAuthContext() as { user: User | null };
   const router = useRouter();
   const pathname = usePathname();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (user == null) {
       router.replace("/signin");
     }
   }, [user, router]);
+
+  useEffect(() => {
+    if (user?.uid) {
+      prefetchLookups(queryClient);
+    }
+  }, [user?.uid, queryClient]);
 
   if (!user) {
     return <LoadingOverlay />;

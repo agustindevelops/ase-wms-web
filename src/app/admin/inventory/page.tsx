@@ -1,11 +1,13 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsFetch } from "@/lib/api/wmsFetch";
+import { wmsFetch, wmsJson } from "@/lib/api/wmsFetch";
 import { ARCHIVED_DISPOSITION_CODES } from "@/lib/db/defaults";
+import { useItemCategories } from "@/lib/query/lookups";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import type { CategoryOption, InventoryItem } from "./inventoryTypes";
+import { useState } from "react";
+import type { InventoryItem } from "./inventoryTypes";
 
 type LocationFilter = "all" | "set" | "none";
 type ArchivedFilter = "0" | "1" | "all";
@@ -30,10 +32,8 @@ function locationText(item: InventoryItem) {
 
 export default function InventoryPage() {
   const { user } = useAuthContext();
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [locations, setLocations] = useState<LocationOption[]>([]);
-  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const userId = user?.uid;
+  const { data: categories = [], error: categoriesError } = useItemCategories();
   const [q, setQ] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -43,15 +43,13 @@ export default function InventoryPage() {
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [rowBusyId, setRowBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    if (!user) {
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
+  const inventoryQuery = useQuery({
+    queryKey: [
+      "inventory",
+      { q, warehouseId, categoryId, location, locationUnitId, archived },
+    ],
+    queryFn: () => {
       const params = new URLSearchParams();
       if (q.trim()) {
         params.set("q", q.trim());
@@ -69,35 +67,19 @@ export default function InventoryPage() {
         params.set("locationUnitId", locationUnitId);
       }
       params.set("archived", archived);
+      return wmsJson<{
+        items: InventoryItem[];
+        locations?: LocationOption[];
+        warehouses?: WarehouseOption[];
+      }>(`/api/inventory?${params}`);
+    },
+    enabled: Boolean(userId),
+  });
 
-      const [itemRes, catRes] = await Promise.all([
-        wmsFetch(`/api/inventory?${params}`),
-        wmsFetch("/api/lookup/item-categories"),
-      ]);
-      const itemJson = await itemRes.json();
-      const catJson = await catRes.json();
-      if (!itemRes.ok) {
-        throw new Error(itemJson.message ?? "Could not load inventory");
-      }
-      if (!catRes.ok) {
-        throw new Error(catJson.message ?? "Could not load categories");
-      }
-      setItems(itemJson.items);
-      setLocations(itemJson.locations ?? []);
-      setWarehouses(itemJson.warehouses ?? []);
-      setCategories(catJson.categories);
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Failed to load inventory",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [user, warehouseId, q, categoryId, location, locationUnitId, archived]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const items = inventoryQuery.data?.items ?? [];
+  const locations = inventoryQuery.data?.locations ?? [];
+  const warehouses = inventoryQuery.data?.warehouses ?? [];
+  const loading = inventoryQuery.isLoading;
 
   const patchDisposition = async (
     item: InventoryItem,
@@ -119,7 +101,7 @@ export default function InventoryPage() {
         throw new Error(json.message ?? "Could not update item");
       }
       setConfirmId(null);
-      await load();
+      await inventoryQuery.refetch();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Update failed");
     } finally {
@@ -274,9 +256,14 @@ export default function InventoryPage() {
         ))}
       </div>
 
-      {error ? (
+      {error || inventoryQuery.error || categoriesError ? (
         <p className="mt-6 text-sm text-peach-700" role="alert">
-          {error}
+          {error ??
+            (inventoryQuery.error instanceof Error
+              ? inventoryQuery.error.message
+              : categoriesError instanceof Error
+                ? categoriesError.message
+                : "Could not load inventory")}
         </p>
       ) : null}
 

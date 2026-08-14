@@ -1,11 +1,14 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsFetch } from "@/lib/api/wmsFetch";
+import { wmsFetch, wmsJson } from "@/lib/api/wmsFetch";
+import {
+  useOrderStatuses,
+  type OrderStatusOption,
+} from "@/lib/query/lookups";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useState } from "react";
-
-type OrderStatus = { id: string; code: string; name: string };
+import { FormEvent, useEffect, useState } from "react";
 
 type OrderLine = {
   id: string;
@@ -20,7 +23,7 @@ type OrderDetail = {
   name: string;
   eventDate: string | null;
   statusId: string;
-  status: OrderStatus;
+  status: OrderStatusOption;
   lines: OrderLine[];
 };
 
@@ -36,12 +39,12 @@ function dateInputValue(value: string | null) {
 
 export default function OrderDetailPage() {
   const { user } = useAuthContext();
+  const userId = user?.uid;
+  const { data: statuses = [], error: statusesError } = useOrderStatuses();
   const params = useParams<{ orderId: string }>();
   const orderId = params.orderId;
 
   const [order, setOrder] = useState<OrderDetail | null>(null);
-  const [statuses, setStatuses] = useState<OrderStatus[]>([]);
-  const [items, setItems] = useState<CatalogItem[]>([]);
   const [name, setName] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [statusId, setStatusId] = useState("");
@@ -50,7 +53,6 @@ export default function OrderDetailPage() {
   const [lineEdits, setLineEdits] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   const applyOrder = (next: OrderDetail) => {
     setOrder(next);
@@ -64,44 +66,31 @@ export default function OrderDetailPage() {
     );
   };
 
-  const load = useCallback(async () => {
-    if (!user || !orderId) {
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const [orderRes, statusRes] = await Promise.all([
-        wmsFetch(`/api/order/${orderId}`),
-        wmsFetch("/api/lookup/order-statuses"),
-      ]);
-      const orderJson = await orderRes.json();
-      const statusJson = await statusRes.json();
-      if (!orderRes.ok) {
-        throw new Error(orderJson.message ?? "Order not found");
-      }
-      if (!statusRes.ok) {
-        throw new Error(statusJson.message ?? "Could not load statuses");
-      }
-      applyOrder(orderJson.order);
-      setStatuses(statusJson.statuses);
-
-      const itemRes = await wmsFetch("/api/inventory?archived=0");
-      const itemJson = await itemRes.json();
-      if (itemRes.ok) {
-        setItems(itemJson.items);
-        setItemId((current) => current || itemJson.items[0]?.id || "");
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to load order");
-    } finally {
-      setLoading(false);
-    }
-  }, [user, orderId]);
+  const orderQuery = useQuery({
+    queryKey: ["order", orderId],
+    queryFn: () => wmsJson<{ order: OrderDetail }>(`/api/order/${orderId}`),
+    enabled: Boolean(userId && orderId),
+  });
+  const catalogQuery = useQuery({
+    queryKey: ["inventory", { archived: "0" }],
+    queryFn: () =>
+      wmsJson<{ items: CatalogItem[] }>("/api/inventory?archived=0"),
+    enabled: Boolean(userId),
+  });
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (orderQuery.data?.order) {
+      applyOrder(orderQuery.data.order);
+    }
+  }, [orderQuery.data]);
+
+  useEffect(() => {
+    const nextItems = catalogQuery.data?.items ?? [];
+    setItemId((current) => current || nextItems[0]?.id || "");
+  }, [catalogQuery.data]);
+
+  const items = catalogQuery.data?.items ?? [];
+  const loading = orderQuery.isLoading || catalogQuery.isLoading;
 
   const authedJson = async (path: string, init: RequestInit) => {
     const response = await wmsFetch(path, init);
@@ -202,7 +191,12 @@ export default function OrderDetailPage() {
   if (!order) {
     return (
       <section className="mx-auto max-w-5xl px-4 py-12">
-        <p className="text-sm text-peach-700">{error ?? "Order not found"}</p>
+        <p className="text-sm text-peach-700">
+          {error ??
+            (orderQuery.error instanceof Error
+              ? orderQuery.error.message
+              : "Order not found")}
+        </p>
       </section>
     );
   }
@@ -212,9 +206,14 @@ export default function OrderDetailPage() {
       <h2 className="font-nickainley text-3xl text-brown-800">{order.name}</h2>
       <p className="mt-1 text-sm text-brown-600">{order.status.name}</p>
 
-      {error ? (
+      {error || orderQuery.error || statusesError ? (
         <p className="mt-4 text-sm text-peach-700" role="alert">
-          {error}
+          {error ??
+            (orderQuery.error instanceof Error
+              ? orderQuery.error.message
+              : statusesError instanceof Error
+                ? statusesError.message
+                : "Could not load order")}
         </p>
       ) : null}
 

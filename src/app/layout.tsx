@@ -1,4 +1,5 @@
 import { AuthContextProvider } from "@/context/AuthContext";
+import { QueryProvider } from "@/lib/query/QueryProvider";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import localFont from "next/font/local";
@@ -35,7 +36,9 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${nickainley.variable} bg-cream text-brown-800 antialiased`}
       >
-        <AuthContextProvider>{children}</AuthContextProvider>
+        <QueryProvider>
+          <AuthContextProvider>{children}</AuthContextProvider>
+        </QueryProvider>
       </body>
     </html>
   );

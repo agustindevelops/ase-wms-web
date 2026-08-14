@@ -32,3 +32,12 @@ export async function wmsFetch(path: string, init: RequestInit = {}) {
 
   return send(true);
 }
+
+export async function wmsJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await wmsFetch(path, init);
+  const json = (await response.json()) as T & { message?: string };
+  if (!response.ok) {
+    throw new Error(json.message ?? `Request failed (${response.status})`);
+  }
+  return json;
+}

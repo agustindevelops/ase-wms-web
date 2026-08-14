@@ -7,6 +7,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useState,
   ReactNode,
 } from "react";
@@ -66,7 +67,7 @@ export function AuthContextProvider({ children }: AuthContextProviderProps) {
         } catch {
           setWarehouseId(null);
         } finally {
-          setUser(nextUser);
+          setUser((prev) => (prev?.uid === nextUser.uid ? prev : nextUser));
           setLoading(false);
         }
       })();
@@ -75,13 +76,16 @@ export function AuthContextProvider({ children }: AuthContextProviderProps) {
     return () => unsubscribe();
   }, []);
 
+  const value = useMemo(
+    () => ({ user, warehouseId }),
+    [user, warehouseId],
+  );
+
   if (loading) {
     return <LoadingOverlay />;
   }
 
   return (
-    <AuthContext.Provider value={{ user, warehouseId }}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
   );
 }
