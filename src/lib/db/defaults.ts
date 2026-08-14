@@ -86,40 +86,36 @@ export const ITEM_CATEGORIES = [
   { id: ITEM_CATEGORY_IDS.OTHER, code: "OTHER", name: "Other" },
 ] as const;
 
-export const ORDER_STATUS_PAYMENT_PENDING = "PAYMENT_PENDING";
+export const ISSUE_TYPE_MISSING = "MISSING";
+export const ISSUE_TYPE_BROKEN = "BROKEN";
+export const ISSUE_TYPES = [ISSUE_TYPE_MISSING, ISSUE_TYPE_BROKEN] as const;
+export type IssueType = (typeof ISSUE_TYPES)[number];
+
+export const ORDER_STATUS_PAID = "PAID";
+export const ORDER_STATUS_PICKED_UP = "PICKED_UP";
+export const ORDER_STATUS_RETURNED = "RETURNED";
+
+export const PICKUP_ORDER_STATUS_CODES = [ORDER_STATUS_PAID] as const;
+export const RETURN_ORDER_STATUS_CODES = [ORDER_STATUS_PICKED_UP] as const;
 
 export const ORDER_STATUS_IDS = {
-  PAYMENT_PENDING: "os_payment_pending",
   PAID: "os_paid",
-  SETUP_INPROGRESS: "os_setup_inprogress",
-  SETUP_FULFILLED: "os_setup_fulfilled",
-  TEARDOWN_STARTED: "os_teardown_started",
-  COMPLETE: "os_complete",
+  PICKED_UP: "os_picked_up",
+  RETURNED: "os_returned",
 } as const;
 
 export const ORDER_STATUSES = [
+  { id: ORDER_STATUS_IDS.PAID, code: ORDER_STATUS_PAID, name: "Paid" },
   {
-    id: ORDER_STATUS_IDS.PAYMENT_PENDING,
-    code: ORDER_STATUS_PAYMENT_PENDING,
-    name: "Payment pending",
-  },
-  { id: ORDER_STATUS_IDS.PAID, code: "PAID", name: "Paid" },
-  {
-    id: ORDER_STATUS_IDS.SETUP_INPROGRESS,
-    code: "SETUP_INPROGRESS",
-    name: "Setup in progress",
+    id: ORDER_STATUS_IDS.PICKED_UP,
+    code: ORDER_STATUS_PICKED_UP,
+    name: "Picked up",
   },
   {
-    id: ORDER_STATUS_IDS.SETUP_FULFILLED,
-    code: "SETUP_FULFILLED",
-    name: "Setup fulfilled",
+    id: ORDER_STATUS_IDS.RETURNED,
+    code: ORDER_STATUS_RETURNED,
+    name: "Returned",
   },
-  {
-    id: ORDER_STATUS_IDS.TEARDOWN_STARTED,
-    code: "TEARDOWN_STARTED",
-    name: "Teardown started",
-  },
-  { id: ORDER_STATUS_IDS.COMPLETE, code: "COMPLETE", name: "Complete" },
 ] as const;
 
 /** Item.material picker values for catalog (not a DB lookup table). */

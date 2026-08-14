@@ -71,7 +71,7 @@ export default function InventoryPage() {
         items: InventoryItem[];
         locations?: LocationOption[];
         warehouses?: WarehouseOption[];
-      }>(`/api/inventory?${params}`);
+      }>(`/api/item?${params}`);
     },
     enabled: Boolean(userId),
   });
@@ -91,7 +91,7 @@ export default function InventoryPage() {
     setRowBusyId(item.id);
     setError(null);
     try {
-      const response = await wmsFetch(`/api/inventory/${item.id}`, {
+      const response = await wmsFetch(`/api/item/${item.id}`, {
           method: "PATCH",
           body: JSON.stringify({ disposition }),
         },

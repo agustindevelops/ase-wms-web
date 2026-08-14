@@ -11,9 +11,15 @@ import {
 import { hasWarehouseAdminClaim } from "@/lib/auth/wmsClaims";
 import { ADMIN_ROLE_CODE } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
+import { getInventoryItem, type ItemRecord } from "@/lib/item/catalogService";
+import { CatalogServiceError } from "@/lib/item/errors";
 
 export type WarehouseAdminContext = AuthSuccess & {
   warehouseId: string;
+};
+
+export type ItemWarehouseAdminContext = WarehouseAdminContext & {
+  item: ItemRecord;
 };
 
 type CachedAdmin = {
@@ -106,6 +112,55 @@ export async function requireWarehouseAdmin(
   return {
     decoded: auth.decoded,
     warehouseId,
+  };
+}
+
+/**
+ * Item-scoped ADMIN gate for `/api/item/{itemId}/*`.
+ * Loads the item, then requires warehouse admin on its warehouse.
+ */
+export async function requireItemWarehouseAdmin(
+  request: Request,
+  itemId: string,
+): Promise<ItemWarehouseAdminContext | AuthFailure> {
+  if (!itemId) {
+    return {
+      response: NextResponse.json(
+        { error: "Bad Request", message: "itemId is required" },
+        { status: 400 },
+      ),
+    };
+  }
+
+  const auth = await requireFirebaseUser(request);
+  if (isAuthFailure(auth)) {
+    return auth;
+  }
+
+  let item: ItemRecord;
+  try {
+    item = await getInventoryItem(itemId);
+  } catch (error) {
+    if (error instanceof CatalogServiceError && error.status === 404) {
+      return {
+        response: NextResponse.json(
+          { error: error.code, message: error.message },
+          { status: 404 },
+        ),
+      };
+    }
+    throw error;
+  }
+
+  const allowed = await assertWarehouseAdmin(auth.decoded, item.warehouseId);
+  if (allowed !== true) {
+    return allowed;
+  }
+
+  return {
+    decoded: auth.decoded,
+    warehouseId: item.warehouseId,
+    item,
   };
 }
 

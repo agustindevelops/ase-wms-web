@@ -24,6 +24,7 @@ model User {
   memberships   WarehouseMembership[]
   files         File[]
   createdOrders EventOrder[]
+  issues        Issue[]
 }
 
 /// Warehouse-scoped role. Seed ADMIN for MVP; Staff is deferred.
@@ -117,6 +118,7 @@ model Item {
   qrCode       QrCode?       @relation(fields: [qrCodeId], references: [id], onDelete: SetNull)
   files        File[]
   orderLines   OrderLine[]
+  issues       Issue[]
 
   @@index([warehouseId])
   @@index([categoryId])
@@ -206,7 +208,7 @@ model QrCode {
   @@index([typeId])
 }
 
-/// Lookup: PAYMENT_PENDING, PAID, SETUP_INPROGRESS, SETUP_FULFILLED, TEARDOWN_STARTED, COMPLETE.
+/// Lookup: PAID, PICKED_UP, RETURNED.
 model OrderStatus {
   id   String @id @default(cuid())
   code String @unique
@@ -244,10 +246,32 @@ model OrderLine {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  order EventOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  item  Item       @relation(fields: [itemId], references: [id])
+  order  EventOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item   Item       @relation(fields: [itemId], references: [id])
+  issues Issue[]
 
   @@unique([orderId, itemId])
   @@index([orderId])
   @@index([itemId])
+}
+
+/// Missing or broken quantity recorded during return (Checkpoint 3). Never restores owned qty.
+model Issue {
+  id              String   @id @default(cuid())
+  type            String
+  itemId          String
+  orderLineId     String?
+  quantity        Int
+  notes           String?
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  item      Item       @relation(fields: [itemId], references: [id])
+  orderLine OrderLine? @relation(fields: [orderLineId], references: [id], onDelete: SetNull)
+  createdBy User       @relation(fields: [createdByUserId], references: [id])
+
+  @@index([itemId])
+  @@index([orderLineId])
+  @@index([createdByUserId])
 }

@@ -42,7 +42,7 @@ export default function EditInventoryPage() {
 
   const itemQuery = useQuery({
     queryKey: ["inventory-item", itemId],
-    queryFn: () => wmsJson<{ item: InventoryItem }>(`/api/inventory/${itemId}`),
+    queryFn: () => wmsJson<{ item: InventoryItem }>(`/api/item/${itemId}`),
     enabled: Boolean(userId && itemId),
   });
   const ordersQuery = useQuery({
@@ -80,7 +80,7 @@ export default function EditInventoryPage() {
     setError(null);
     try {
       const payload = formToPayload(values);
-      const response = await wmsFetch(`/api/inventory/${item.id}`, {
+      const response = await wmsFetch(`/api/item/${item.id}`, {
         method: "PATCH",
         body: JSON.stringify({
           ...payload,

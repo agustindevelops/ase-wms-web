@@ -588,7 +588,7 @@ export async function createCatalogItem(
   });
 }
 
-export async function createItemQrCode(warehouseId: string, itemId: string) {
+export async function createItemQrCode(itemId: string) {
   const itemType = await prisma.qrCodeType.findUnique({
     where: { code: QR_CODE_TYPE_ITEM },
   });
@@ -601,14 +601,14 @@ export async function createItemQrCode(warehouseId: string, itemId: string) {
   }
 
   return prisma.$transaction(async (tx) => {
-    const item = await tx.item.findFirst({
-      where: { id: itemId, warehouseId },
+    const item = await tx.item.findUnique({
+      where: { id: itemId },
     });
 
     if (!item) {
       throw new CatalogServiceError(
         "ITEM_NOT_FOUND",
-        "Item not found in this warehouse",
+        "Item not found",
         404,
       );
     }
@@ -643,7 +643,7 @@ export async function createItemQrCode(warehouseId: string, itemId: string) {
   });
 }
 
-export async function deleteItemQrCode(warehouseId: string, qrCodeId: string) {
+export async function deleteItemQrCode(itemId: string) {
   const itemType = await prisma.qrCodeType.findUnique({
     where: { code: QR_CODE_TYPE_ITEM },
   });
@@ -655,15 +655,19 @@ export async function deleteItemQrCode(warehouseId: string, qrCodeId: string) {
     );
   }
 
-  const item = await prisma.item.findFirst({
-    where: { qrCodeId, warehouseId },
+  const item = await prisma.item.findUnique({
+    where: { id: itemId },
     include: { qrCode: true },
   });
 
-  if (!item?.qrCode) {
+  if (!item) {
+    throw new CatalogServiceError("ITEM_NOT_FOUND", "Item not found", 404);
+  }
+
+  if (!item.qrCode || !item.qrCodeId) {
     throw new CatalogServiceError(
       "QR_CODE_NOT_FOUND",
-      "QR code not found on an item in this warehouse",
+      "Item does not have a QR code",
       404,
     );
   }
@@ -675,6 +679,8 @@ export async function deleteItemQrCode(warehouseId: string, qrCodeId: string) {
       404,
     );
   }
+
+  const qrCodeId = item.qrCodeId;
 
   await prisma.$transaction(async (tx) => {
     await tx.item.update({
@@ -1107,15 +1113,6 @@ export async function updateInventoryItem(
   });
 }
 
-export async function updateWarehouseItem(
-  warehouseId: string,
-  itemId: string,
-  input: CatalogUpdateInput,
-): Promise<ItemRecord> {
-  await getWarehouseItem(warehouseId, itemId);
-  return updateInventoryItem(itemId, input);
-}
-
 export async function unbindItemFromLocation(
   warehouseId: string,
   itemId: string,
@@ -1145,12 +1142,4 @@ export async function unbindItemFromLocation(
     data: { locationUnitId: null },
     include: itemInclude,
   });
-}
-
-export function parseItemId(body: Record<string, unknown>): string {
-  const itemId = typeof body.itemId === "string" ? body.itemId.trim() : "";
-  if (!itemId) {
-    throw new CatalogServiceError("Bad Request", "itemId is required");
-  }
-  return itemId;
 }

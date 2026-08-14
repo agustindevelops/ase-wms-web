@@ -1,9 +1,10 @@
 import "server-only";
 
 import type { Prisma } from "@/generated/prisma/client";
-import { ORDER_STATUS_PAYMENT_PENDING, ORDER_STATUSES } from "@/lib/db/defaults";
+import { ORDER_STATUS_PAID, ORDER_STATUSES } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
 import { OrderServiceError } from "@/lib/order/errors";
+import { syncOrderStatusFromLines } from "@/lib/order/fulfillmentService";
 
 const orderListInclude = {
   status: { select: { id: true, code: true, name: true } },
@@ -21,6 +22,16 @@ const orderDetailInclude = {
           name: true,
           warehouseId: true,
         },
+      },
+      issues: {
+        select: {
+          id: true,
+          type: true,
+          quantity: true,
+          notes: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "asc" as const },
       },
     },
     orderBy: { createdAt: "asc" as const },
@@ -49,6 +60,12 @@ export type OrderUpdateInput = {
 export type OrderLineCreateInput = {
   itemId: string;
   qtyRequested: number;
+};
+
+export type OrderLineUpdateInput = {
+  qtyRequested?: number;
+  qtyPicked?: number;
+  qtyReturned?: number;
 };
 
 function asRequiredName(value: unknown): string {
@@ -84,16 +101,27 @@ function asOptionalEventDate(value: unknown): Date | null {
 }
 
 function asQtyRequested(value: unknown): number {
+  const qty = asNonNegativeInt(value, "qtyRequested");
+  if (qty <= 0) {
+    throw new OrderServiceError(
+      "Bad Request",
+      "qtyRequested must be an integer greater than 0",
+    );
+  }
+  return qty;
+}
+
+function asNonNegativeInt(value: unknown, field: string): number {
   const qty =
     typeof value === "number"
       ? value
       : typeof value === "string"
         ? Number(value)
         : NaN;
-  if (!Number.isInteger(qty) || qty <= 0) {
+  if (!Number.isInteger(qty) || qty < 0) {
     throw new OrderServiceError(
       "Bad Request",
-      "qtyRequested must be an integer greater than 0",
+      `${field} must be an integer of 0 or more`,
     );
   }
   return qty;
@@ -154,10 +182,30 @@ export function parseOrderLineCreateInput(
   };
 }
 
-export function parseOrderLineQtyUpdate(
+export function parseOrderLineUpdate(
   body: Record<string, unknown>,
-): number {
-  return asQtyRequested(body.qtyRequested);
+): OrderLineUpdateInput {
+  const input: OrderLineUpdateInput = {};
+  if (body.qtyRequested !== undefined) {
+    input.qtyRequested = asQtyRequested(body.qtyRequested);
+  }
+  if (body.qtyPicked !== undefined) {
+    input.qtyPicked = asNonNegativeInt(body.qtyPicked, "qtyPicked");
+  }
+  if (body.qtyReturned !== undefined) {
+    input.qtyReturned = asNonNegativeInt(body.qtyReturned, "qtyReturned");
+  }
+  if (
+    input.qtyRequested === undefined &&
+    input.qtyPicked === undefined &&
+    input.qtyReturned === undefined
+  ) {
+    throw new OrderServiceError(
+      "Bad Request",
+      "Provide qtyRequested, qtyPicked, or qtyReturned",
+    );
+  }
+  return input;
 }
 
 export function parseStatusFilter(
@@ -211,12 +259,12 @@ export async function createOrder(
   createdByUserId: string,
 ): Promise<OrderDetailRecord> {
   const status = await prisma.orderStatus.findUnique({
-    where: { code: ORDER_STATUS_PAYMENT_PENDING },
+    where: { code: ORDER_STATUS_PAID },
   });
   if (!status) {
     throw new OrderServiceError(
       "ORDER_STATUS_MISSING",
-      "PAYMENT_PENDING status is not seeded",
+      "PAID status is not seeded",
       500,
     );
   }
@@ -279,51 +327,76 @@ export async function addOrUpdateOrderLine(
   });
 
   if (existing) {
-    if (input.qtyRequested < existing.qtyPicked) {
-      throw new OrderServiceError(
-        "Bad Request",
-        `qtyRequested cannot be below qtyPicked (${existing.qtyPicked})`,
-      );
-    }
-    await prisma.orderLine.update({
-      where: { id: existing.id },
-      data: { qtyRequested: input.qtyRequested },
+    await prisma.$transaction(async (tx) => {
+      await tx.orderLine.update({
+        where: { id: existing.id },
+        data: { qtyRequested: input.qtyRequested },
+      });
+      await syncOrderStatusFromLines(tx, orderId);
     });
     return getOrder(orderId);
   }
 
-  await prisma.orderLine.create({
-    data: {
-      orderId,
-      itemId: input.itemId,
-      qtyRequested: input.qtyRequested,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.orderLine.create({
+      data: {
+        orderId,
+        itemId: input.itemId,
+        qtyRequested: input.qtyRequested,
+      },
+    });
+    await syncOrderStatusFromLines(tx, orderId);
   });
 
   return getOrder(orderId);
 }
 
-export async function updateOrderLineQty(
+export async function updateOrderLine(
   orderId: string,
   lineId: string,
-  qtyRequested: number,
+  input: OrderLineUpdateInput,
 ): Promise<OrderDetailRecord> {
-  const line = await prisma.orderLine.findFirst({
-    where: { id: lineId, orderId },
-  });
-  if (!line) {
-    throw new OrderServiceError("Not Found", "Order line not found", 404);
-  }
-  if (qtyRequested < line.qtyPicked) {
-    throw new OrderServiceError(
-      "Bad Request",
-      `qtyRequested cannot be below qtyPicked (${line.qtyPicked})`,
-    );
-  }
+  await prisma.$transaction(async (tx) => {
+    const line = await tx.orderLine.findFirst({
+      where: { id: lineId, orderId },
+      include: { item: true },
+    });
+    if (!line) {
+      throw new OrderServiceError("Not Found", "Order line not found", 404);
+    }
 
-  await prisma.orderLine.update({
-    where: { id: lineId },
-    data: { qtyRequested },
+    const nextRequested = input.qtyRequested ?? line.qtyRequested;
+    const nextPicked = input.qtyPicked ?? line.qtyPicked;
+    const nextReturned = input.qtyReturned ?? line.qtyReturned;
+
+    const pickedDelta = nextPicked - line.qtyPicked;
+    const returnedDelta = nextReturned - line.qtyReturned;
+    const availableDelta = -pickedDelta + returnedDelta;
+
+    await tx.orderLine.update({
+      where: { id: lineId },
+      data: {
+        qtyRequested: nextRequested,
+        qtyPicked: nextPicked,
+        qtyReturned: nextReturned,
+      },
+    });
+    if (availableDelta > 0) {
+      await tx.item.update({
+        where: { id: line.itemId },
+        data: { quantityAvailable: { increment: availableDelta } },
+      });
+    } else if (availableDelta < 0 && line.item.quantityAvailable > 0) {
+      await tx.item.update({
+        where: { id: line.itemId },
+        data: {
+          quantityAvailable: {
+            decrement: Math.min(line.item.quantityAvailable, -availableDelta),
+          },
+        },
+      });
+    }
+    await syncOrderStatusFromLines(tx, orderId);
   });
 
   return getOrder(orderId);
@@ -333,19 +406,30 @@ export async function deleteOrderLine(
   orderId: string,
   lineId: string,
 ): Promise<OrderDetailRecord> {
-  const line = await prisma.orderLine.findFirst({
-    where: { id: lineId, orderId },
-  });
-  if (!line) {
-    throw new OrderServiceError("Not Found", "Order line not found", 404);
-  }
-  if (line.qtyPicked > 0) {
-    throw new OrderServiceError(
-      "Bad Request",
-      "Cannot remove a line that already has picked quantity",
-    );
-  }
+  await prisma.$transaction(async (tx) => {
+    const line = await tx.orderLine.findFirst({
+      where: { id: lineId, orderId },
+      include: { issues: { select: { quantity: true } } },
+    });
+    if (!line) {
+      throw new OrderServiceError("Not Found", "Order line not found", 404);
+    }
 
-  await prisma.orderLine.delete({ where: { id: lineId } });
+    const qtyIssued = line.issues.reduce((sum, issue) => sum + issue.quantity, 0);
+    const restoreAvailable = Math.max(
+      0,
+      line.qtyPicked - line.qtyReturned - qtyIssued,
+    );
+    if (restoreAvailable > 0) {
+      await tx.item.update({
+        where: { id: line.itemId },
+        data: { quantityAvailable: { increment: restoreAvailable } },
+      });
+    }
+
+    await tx.orderLine.delete({ where: { id: lineId } });
+    await syncOrderStatusFromLines(tx, orderId);
+  });
+
   return getOrder(orderId);
 }

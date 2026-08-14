@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { isAuthFailure, requireAdmin } from "@/lib/auth/requireAuth";
+import { isAuthFailure } from "@/lib/auth/requireAuth";
+import { requireItemWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
 import {
-  getInventoryItem,
   parseCatalogUpdateInput,
   updateInventoryItem,
   withItemReadUrls,
@@ -15,24 +15,17 @@ type RouteContext = {
 };
 
 /**
- * GET /api/inventory/{itemId}
+ * GET /api/item/{itemId}
  */
 export async function GET(request: Request, context: RouteContext) {
-  const auth = await requireAdmin(request);
+  const { itemId } = await context.params;
+  const auth = await requireItemWarehouseAdmin(request, itemId);
   if (isAuthFailure(auth)) {
     return auth.response;
   }
 
-  const { itemId } = await context.params;
-  if (!itemId) {
-    return NextResponse.json(
-      { error: "Bad Request", message: "itemId is required" },
-      { status: 400 },
-    );
-  }
-
   try {
-    const item = await withItemReadUrls(await getInventoryItem(itemId));
+    const item = await withItemReadUrls(auth.item);
     return NextResponse.json({ item });
   } catch (error) {
     return toCatalogErrorResponse(error);
@@ -40,20 +33,13 @@ export async function GET(request: Request, context: RouteContext) {
 }
 
 /**
- * PATCH /api/inventory/{itemId}
+ * PATCH /api/item/{itemId}
  */
 export async function PATCH(request: Request, context: RouteContext) {
-  const auth = await requireAdmin(request);
+  const { itemId } = await context.params;
+  const auth = await requireItemWarehouseAdmin(request, itemId);
   if (isAuthFailure(auth)) {
     return auth.response;
-  }
-
-  const { itemId } = await context.params;
-  if (!itemId) {
-    return NextResponse.json(
-      { error: "Bad Request", message: "itemId is required" },
-      { status: 400 },
-    );
   }
 
   const parsed = await readJsonObject(request);
@@ -64,7 +50,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   try {
     const input = parseCatalogUpdateInput(parsed.value);
     const item = await withItemReadUrls(
-      await updateInventoryItem(itemId, input),
+      await updateInventoryItem(auth.item.id, input),
     );
     return NextResponse.json({ item });
   } catch (error) {

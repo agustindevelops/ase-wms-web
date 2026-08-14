@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { isAuthFailure, requireAdmin } from "@/lib/auth/requireAuth";
 import {
   deleteOrderLine,
-  parseOrderLineQtyUpdate,
-  updateOrderLineQty,
+  parseOrderLineUpdate,
+  updateOrderLine,
 } from "@/lib/order/orderService";
 import { readJsonObject, toOrderErrorResponse } from "@/lib/order/errors";
 
@@ -15,7 +15,7 @@ type RouteContext = {
 
 /**
  * PATCH /api/order/{orderId}/line/{lineId}
- * Update qtyRequested.
+ * Admin override: update qtyRequested, qtyPicked, and/or qtyReturned.
  */
 export async function PATCH(request: Request, context: RouteContext) {
   const auth = await requireAdmin(request);
@@ -30,8 +30,8 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     const { orderId, lineId } = await context.params;
-    const qtyRequested = parseOrderLineQtyUpdate(parsed.value);
-    const order = await updateOrderLineQty(orderId, lineId, qtyRequested);
+    const input = parseOrderLineUpdate(parsed.value);
+    const order = await updateOrderLine(orderId, lineId, input);
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);
@@ -40,7 +40,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
 /**
  * DELETE /api/order/{orderId}/line/{lineId}
- * Remove a line that has not been picked.
+ * Remove a line. Restores available qty still outstanding on the line.
  */
 export async function DELETE(request: Request, context: RouteContext) {
   const auth = await requireAdmin(request);

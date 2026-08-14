@@ -32,7 +32,7 @@ export default function NewInventoryPage() {
   const warehousesQuery = useQuery({
     queryKey: ["inventory", { archived: "0" }],
     queryFn: () =>
-      wmsJson<{ warehouses?: WarehouseOption[] }>("/api/inventory?archived=0"),
+      wmsJson<{ warehouses?: WarehouseOption[] }>("/api/item?archived=0"),
     enabled: Boolean(userId),
   });
   const warehouses = warehousesQuery.data?.warehouses ?? [];
@@ -65,7 +65,7 @@ export default function NewInventoryPage() {
     setError(null);
     try {
       const payload = formToPayload(values);
-      const response = await wmsFetch("/api/item/catalog", {
+      const response = await wmsFetch("/api/item", {
         method: "POST",
         body: JSON.stringify({
           warehouseId,

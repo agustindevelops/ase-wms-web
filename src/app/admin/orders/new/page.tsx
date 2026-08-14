@@ -45,7 +45,7 @@ export default function NewOrderPage() {
     <section className="mx-auto max-w-xl px-4 py-12">
       <h2 className="font-nickainley text-3xl text-brown-800">Create order</h2>
       <p className="mt-1 text-sm text-brown-600">
-        Starts as Payment pending. Add items on the next screen.
+        Starts as Paid. Add items on the next screen.
       </p>
 
       <form

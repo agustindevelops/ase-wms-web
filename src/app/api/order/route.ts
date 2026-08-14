@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 
 /**
  * POST /api/order
- * Create an event order with name, optional eventDate, status PAYMENT_PENDING.
+ * Create an event order with name, optional eventDate, status PAID.
  */
 export async function POST(request: Request) {
   const auth = await requireAdmin(request);
