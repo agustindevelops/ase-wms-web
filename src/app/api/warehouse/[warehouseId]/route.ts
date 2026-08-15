@@ -28,8 +28,10 @@ type RouteContext = {
 export async function GET(request: Request, context: RouteContext) {
   try {
     const { warehouseId } = await context.params;
-    const result = await withWarehouseAdminRead(request, warehouseId, () =>
-      getWarehouseView(warehouseId),
+    const result = await withWarehouseAdminRead(
+      request,
+      warehouseId,
+      (organizationId) => getWarehouseView(organizationId, warehouseId),
     );
     if (isAuthFailure(result)) {
       return result.response;
@@ -59,7 +61,11 @@ export async function PUT(request: Request, context: RouteContext) {
 
   try {
     const input = parseWarehouseInput(parsed.value);
-    const data = await replaceWarehouse(auth.warehouseId, input);
+    const data = await replaceWarehouse(
+      auth.organizationId,
+      auth.warehouseId,
+      input,
+    );
     return NextResponse.json(data);
   } catch (error) {
     return toWarehouseErrorResponse(error);

@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const orders = await listPickupOrders();
+    const orders = await listPickupOrders(auth.organizationId);
     return NextResponse.json({ orders });
   } catch (error) {
     return toOrderErrorResponse(error);

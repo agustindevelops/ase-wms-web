@@ -31,6 +31,7 @@ export async function DELETE(
   try {
     const deleted = await deleteOwnedFile({
       userId: auth.user.id,
+      organizationId: auth.organizationId,
       fileId: id,
     });
 

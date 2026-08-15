@@ -34,7 +34,11 @@ export async function POST(
 
   try {
     const input = parseLocationUnitInput(parsed.value);
-    const locationUnit = await createLocationUnit(auth.warehouseId, input);
+    const locationUnit = await createLocationUnit(
+      auth.organizationId,
+      auth.warehouseId,
+      input,
+    );
     return NextResponse.json({ locationUnit }, { status: 201 });
   } catch (error) {
     return toWarehouseErrorResponse(error);

@@ -25,7 +25,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const { orderId } = await context.params;
-    const order = await getReturnOrder(orderId);
+    const order = await getReturnOrder(auth.organizationId, orderId);
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);
@@ -52,6 +52,7 @@ export async function POST(request: Request, context: RouteContext) {
     const { orderId } = await context.params;
     const input = parseReturnBody(parsed.value);
     const order = await returnOrderLine(
+      auth.organizationId,
       orderId,
       input.itemId,
       input.qty,

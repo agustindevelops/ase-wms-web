@@ -18,7 +18,7 @@ import {
 type WarehouseOption = { id: string; name: string };
 
 export default function NewInventoryPage() {
-  const { user, warehouseId: claimWarehouseId } = useAuthContext();
+  const { user } = useAuthContext();
   const userId = user?.uid;
   const lookups = useInventoryLookups();
   const queryClient = useQueryClient();
@@ -41,15 +41,8 @@ export default function NewInventoryPage() {
     if (warehouseId || warehouses.length === 0) {
       return;
     }
-    if (
-      claimWarehouseId &&
-      warehouses.some((warehouse) => warehouse.id === claimWarehouseId)
-    ) {
-      setWarehouseId(claimWarehouseId);
-      return;
-    }
     setWarehouseId(warehouses[0].id);
-  }, [claimWarehouseId, warehouseId, warehouses]);
+  }, [warehouseId, warehouses]);
 
   if (!user) {
     return null;

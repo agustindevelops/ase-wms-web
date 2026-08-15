@@ -3,11 +3,17 @@
 export const ADMIN_ROLE_CODE = "ADMIN";
 export const ADMIN_ROLE_NAME = "Admin";
 export const ADMIN_ROLE_DESCRIPTION =
-  "MVP warehouse administrator role. Assigned through warehouse membership.";
+  "Organization administrator. Assigned through organization membership.";
 
-/** Hardcoded default warehouse created on first login if none exists yet. */
-export const DEFAULT_WAREHOUSE_ID = "wh_aniah_default";
-export const DEFAULT_WAREHOUSE_NAME = "Aniah Social Events";
+export const ANIAH_ORGANIZATION = {
+  name: "Aniah Social Events",
+  slug: "aniah-social-events",
+  contactEmail: "aniahsocialevents@gmail.com",
+  websiteUrl: "https://www.aniahsocialevents.com",
+} as const;
+
+export const ANIAH_ADMIN_EMAIL = "aniahsocialevents@gmail.com";
+export const ANIAH_WAREHOUSE_NAME = "Lemon Tree";
 
 /** QR_CODE_TYPE.code — never pass these as QrCode.typeId; look up the row by code. */
 export const QR_CODE_TYPE_ITEM = 0;
@@ -142,6 +148,34 @@ export const ITEM_DISPOSITIONS = [
   { code: "PERSONAL", name: "Personal" },
   { code: "SELL", name: "Sell" },
   { code: "DISCARD", name: "Discard" },
+  { code: "MISSING", name: "Missing" },
+  { code: "BROKEN", name: "Broken" },
 ] as const;
 
-export const ARCHIVED_DISPOSITION_CODES = ["SELL", "DISCARD"] as const;
+export const MANUAL_ARCHIVE_DISPOSITION_CODES = ["SELL", "DISCARD"] as const;
+export const ISSUE_ARCHIVE_DISPOSITION_CODES = [
+  ISSUE_TYPE_MISSING,
+  ISSUE_TYPE_BROKEN,
+] as const;
+export const ARCHIVED_DISPOSITION_CODES = [
+  ...MANUAL_ARCHIVE_DISPOSITION_CODES,
+  ...ISSUE_ARCHIVE_DISPOSITION_CODES,
+] as const;
+
+export function isArchivedDisposition(
+  disposition: string | null | undefined,
+): boolean {
+  return (
+    disposition != null &&
+    (ARCHIVED_DISPOSITION_CODES as readonly string[]).includes(disposition)
+  );
+}
+
+export function isIssueArchivedDisposition(
+  disposition: string | null | undefined,
+): boolean {
+  return (
+    disposition != null &&
+    (ISSUE_ARCHIVE_DISPOSITION_CODES as readonly string[]).includes(disposition)
+  );
+}

@@ -25,7 +25,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const { orderId } = await context.params;
-    const order = await getPickupOrder(orderId);
+    const order = await getPickupOrder(auth.organizationId, orderId);
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);
@@ -50,7 +50,13 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const { orderId } = await context.params;
     const input = parsePickBody(parsed.value);
-    const order = await pickOrderLine(orderId, input.itemId, input.qty);
+    const order = await pickOrderLine(
+      auth.organizationId,
+      orderId,
+      input.itemId,
+      input.qty,
+      input.warehouseId,
+    );
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);

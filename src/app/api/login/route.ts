@@ -3,19 +3,19 @@ import {
   FirebasePasswordError,
   signInWithEmailPassword,
 } from "@/lib/auth/firebasePassword";
+import { issueOrgCustomToken } from "@/lib/auth/orgClaims";
 import {
   getProvisionedSession,
   SessionLookupError,
   toSessionJson,
 } from "@/lib/auth/sessionService";
-import { issueWmsCustomToken } from "@/lib/auth/wmsClaims";
 
 export const runtime = "nodejs";
 
 /**
  * POST /api/login
- * Verify email/password, stamp warehouse memberships on the Firebase user,
- * and return a custom token whose ID token already includes `wms` claims.
+ * Verify email/password, stamp organizationId on the Firebase user,
+ * and return a custom token whose ID token already includes organizationId.
  */
 export async function POST(request: Request) {
   let body: unknown;
@@ -53,9 +53,9 @@ export async function POST(request: Request) {
   try {
     const firebaseUser = await signInWithEmailPassword(email, password);
     const session = await getProvisionedSession(firebaseUser.localId);
-    const customToken = await issueWmsCustomToken(
+    const customToken = await issueOrgCustomToken(
       firebaseUser.localId,
-      session.claims,
+      session.organizationId,
     );
 
     return NextResponse.json({

@@ -7,7 +7,7 @@ import {
 } from "@/lib/warehouse/errors";
 import {
   createLocationQrCode,
-  parseLocationUnitId,
+  parseCreateLocationQrInput,
 } from "@/lib/warehouse/qrCodeService";
 
 export const runtime = "nodejs";
@@ -15,6 +15,8 @@ export const runtime = "nodejs";
 /**
  * POST /api/warehouse/{warehouseId}/QR
  * Create a location QR (type code 1) and attach it to locationUnitId.
+ * Omit payload to generate a printable code (payload = id). Pass payload to
+ * bind a scanned label, rejected when that id/payload is already in use.
  */
 export async function POST(
   request: Request,
@@ -32,8 +34,12 @@ export async function POST(
   }
 
   try {
-    const locationUnitId = parseLocationUnitId(parsed.value);
-    const result = await createLocationQrCode(auth.warehouseId, locationUnitId);
+    const input = parseCreateLocationQrInput(parsed.value);
+    const result = await createLocationQrCode(
+      auth.organizationId,
+      auth.warehouseId,
+      input,
+    );
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     return toWarehouseErrorResponse(error);

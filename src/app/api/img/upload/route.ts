@@ -63,6 +63,7 @@ export async function POST(request: Request) {
   try {
     const result = await signFileUpload({
       userId: auth.user.id,
+      organizationId: auth.organizationId,
       contentType,
       byteSize,
     });

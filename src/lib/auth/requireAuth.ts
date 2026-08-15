@@ -3,17 +3,21 @@ import "server-only";
 import { NextResponse } from "next/server";
 import type { DecodedIdToken } from "firebase-admin/auth";
 import type {
+  Organization,
+  OrganizationMembership,
   Role,
   User,
   Warehouse,
-  WarehouseMembership,
 } from "@/generated/prisma/client";
 import { getFirebaseAdminAuth } from "@/lib/auth/firebaseAdmin";
+import {
+  getTokenOrganizationId,
+  syncOrgClaim,
+} from "@/lib/auth/orgClaims";
 import {
   getProvisionedSession,
   SessionLookupError,
 } from "@/lib/auth/sessionService";
-import { getWmsClaims, syncWmsClaims } from "@/lib/auth/wmsClaims";
 import { ADMIN_ROLE_CODE } from "@/lib/db/defaults";
 
 export type AuthSuccess = {
@@ -24,17 +28,18 @@ export type AuthFailure = {
   response: NextResponse;
 };
 
-export type UserWarehouseContext = {
+export type OrgAuthContext = AuthSuccess & {
   user: User;
-  warehouse: Warehouse;
+  organization: Organization;
+  organizationId: string;
   role: Role;
-  membership: WarehouseMembership;
+  membership: OrganizationMembership;
+  warehouses: Pick<Warehouse, "id" | "name">[];
+  tokenRefreshRequired: boolean;
 };
 
-export type PrismaAuthContext = AuthSuccess &
-  UserWarehouseContext & {
-    tokenRefreshRequired: boolean;
-  };
+/** @deprecated Use OrgAuthContext. Kept as an alias during the org-tenant cutover. */
+export type PrismaAuthContext = OrgAuthContext;
 
 /**
  * Verify Firebase Bearer token before any Prisma work.
@@ -83,12 +88,12 @@ export function isAuthFailure(
 }
 
 /**
- * Verify Bearer, then load the existing Prisma User and warehouse memberships.
- * Stamps memberships onto Firebase custom claims when they are missing/stale.
+ * Verify Bearer, load Prisma user + organization membership.
+ * organizationId comes from the verified token claim, matched to membership.
  */
-export async function requirePrismaUser(
+export async function requireOrgContext(
   request: Request,
-): Promise<PrismaAuthContext | AuthFailure> {
+): Promise<OrgAuthContext | AuthFailure> {
   const auth = await requireFirebaseUser(request);
   if (isAuthFailure(auth)) {
     return auth;
@@ -96,18 +101,37 @@ export async function requirePrismaUser(
 
   try {
     const session = await getProvisionedSession(auth.decoded.uid);
-    const tokenRefreshRequired = await syncWmsClaims(
+    const tokenOrganizationId = getTokenOrganizationId(auth.decoded);
+
+    if (
+      tokenOrganizationId &&
+      tokenOrganizationId !== session.organizationId
+    ) {
+      return {
+        response: NextResponse.json(
+          {
+            error: "Forbidden",
+            message: "Token organization does not match membership",
+          },
+          { status: 403 },
+        ),
+      };
+    }
+
+    const tokenRefreshRequired = await syncOrgClaim(
       auth.decoded.uid,
-      getWmsClaims(auth.decoded),
-      session.claims,
+      tokenOrganizationId,
+      session.organizationId,
     );
 
     return {
       decoded: auth.decoded,
       user: session.user,
-      warehouse: session.warehouse,
+      organization: session.organization,
+      organizationId: session.organizationId,
       role: session.role,
       membership: session.membership,
+      warehouses: session.warehouses,
       tokenRefreshRequired,
     };
   } catch (error) {
@@ -123,14 +147,20 @@ export async function requirePrismaUser(
   }
 }
 
+/** Alias used by existing routes. */
+export async function requirePrismaUser(
+  request: Request,
+): Promise<OrgAuthContext | AuthFailure> {
+  return requireOrgContext(request);
+}
+
 /**
- * Admin-only gate for routes that are not warehouse-scoped (e.g. /api/order).
- * MVP: the user's first warehouse membership must be ADMIN.
+ * Admin-only gate. MVP: the user's organization membership must be ADMIN.
  */
 export async function requireAdmin(
   request: Request,
-): Promise<PrismaAuthContext | AuthFailure> {
-  const auth = await requirePrismaUser(request);
+): Promise<OrgAuthContext | AuthFailure> {
+  const auth = await requireOrgContext(request);
   if (isAuthFailure(auth)) {
     return auth;
   }

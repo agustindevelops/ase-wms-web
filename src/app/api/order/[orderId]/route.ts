@@ -25,7 +25,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const { orderId } = await context.params;
-    const order = await getOrder(orderId);
+    const order = await getOrder(auth.organizationId, orderId);
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);
@@ -50,7 +50,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   try {
     const { orderId } = await context.params;
     const input = parseOrderUpdateInput(parsed.value);
-    const order = await updateOrder(orderId, input);
+    const order = await updateOrder(auth.organizationId, orderId, input);
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);

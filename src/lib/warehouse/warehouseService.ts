@@ -71,11 +71,12 @@ export function parseWarehouseInput(body: Record<string, unknown>): WarehouseInp
 }
 
 export async function replaceWarehouse(
+  organizationId: string,
   warehouseId: string,
   input: WarehouseInput,
 ) {
-  const existing = await prisma.warehouse.findUnique({
-    where: { id: warehouseId },
+  const existing = await prisma.warehouse.findFirst({
+    where: { id: warehouseId, organizationId },
     select: { id: true },
   });
 

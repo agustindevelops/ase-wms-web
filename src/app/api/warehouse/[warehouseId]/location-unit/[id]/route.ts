@@ -35,8 +35,11 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const result = await withWarehouseAdminRead(request, warehouseId, () =>
-      getLocationUnitWithChildren(warehouseId, id),
+    const result = await withWarehouseAdminRead(
+      request,
+      warehouseId,
+      (organizationId) =>
+        getLocationUnitWithChildren(organizationId, warehouseId, id),
     );
     if (isAuthFailure(result)) {
       return result.response;
@@ -73,6 +76,7 @@ export async function PUT(request: Request, context: RouteContext) {
   try {
     const input = parseLocationUnitInput(parsed.value);
     const locationUnit = await replaceLocationUnit(
+      auth.organizationId,
       auth.warehouseId,
       id,
       input,
@@ -101,7 +105,11 @@ export async function DELETE(request: Request, context: RouteContext) {
   }
 
   try {
-    const result = await deleteLocationUnit(auth.warehouseId, id);
+    const result = await deleteLocationUnit(
+      auth.organizationId,
+      auth.warehouseId,
+      id,
+    );
     return NextResponse.json(result);
   } catch (error) {
     return toWarehouseErrorResponse(error);

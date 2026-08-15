@@ -26,7 +26,7 @@ type OrderLine = {
   qtyRequested: number;
   qtyPicked: number;
   qtyReturned: number;
-  item: { id: string; name: string; warehouseId: string };
+  item: { id: string; name: string; warehouseId: string | null };
   issues: OrderIssue[];
 };
 

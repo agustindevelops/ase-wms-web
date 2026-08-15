@@ -10,6 +10,7 @@ import {
   QR_CODE_TYPE_ITEM,
   QR_CODE_TYPE_LOCATION,
   RETURN_ORDER_STATUS_CODES,
+  isIssueArchivedDisposition,
   type IssueType,
 } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
@@ -62,10 +63,27 @@ const fulfillmentLineInclude = {
     select: {
       id: true,
       name: true,
-      warehouseId: true,
-      quantityOwned: true,
-      quantityAvailable: true,
-      locationUnit: { select: locationUnitPathSelect },
+      disposition: true,
+      stocks: {
+        select: {
+          warehouseId: true,
+          quantityOwned: true,
+          quantityAvailable: true,
+          locationUnit: { select: locationUnitPathSelect },
+        },
+      },
+    },
+  },
+  allocations: {
+    include: {
+      inventoryStock: {
+        select: {
+          warehouseId: true,
+          quantityOwned: true,
+          quantityAvailable: true,
+          locationUnit: { select: locationUnitPathSelect },
+        },
+      },
     },
   },
   issues: {
@@ -86,6 +104,26 @@ type FulfillmentOrderRecord = Prisma.EventOrderGetPayload<{
 }>;
 
 export type FulfillmentMode = "pickup" | "return";
+
+function sumAllocations(
+  allocations: FulfillmentOrderRecord["lines"][number]["allocations"],
+  field: "qtyPicked" | "qtyReturned",
+) {
+  return allocations.reduce((sum, allocation) => sum + allocation[field], 0);
+}
+
+function sumItemStocks(
+  stocks: FulfillmentOrderRecord["lines"][number]["item"]["stocks"],
+  field: "quantityOwned" | "quantityAvailable",
+) {
+  return stocks.reduce((sum, stock) => sum + stock[field], 0);
+}
+
+function primaryAllocationStock(
+  line: FulfillmentOrderRecord["lines"][number],
+) {
+  return line.allocations[0]?.inventoryStock ?? line.item.stocks[0] ?? null;
+}
 
 function asPositiveQty(value: unknown, field: string): number {
   const qty =
@@ -117,10 +155,14 @@ function asRequiredString(value: unknown, field: string): string {
 export function parsePickBody(body: Record<string, unknown>): {
   itemId: string;
   qty: number;
+  warehouseId?: string;
 } {
+  const warehouseId =
+    typeof body.warehouseId === "string" ? body.warehouseId.trim() : undefined;
   return {
     itemId: asRequiredString(body.itemId, "itemId"),
     qty: asPositiveQty(body.qty, "qty"),
+    ...(warehouseId ? { warehouseId } : {}),
   };
 }
 
@@ -209,34 +251,41 @@ function assertHomeLocation(
 }
 
 function mapLine(line: FulfillmentOrderRecord["lines"][number]) {
+  const qtyPicked = sumAllocations(line.allocations, "qtyPicked");
+  const qtyReturned = sumAllocations(line.allocations, "qtyReturned");
+  const stock = primaryAllocationStock(line);
+  const archived = isIssueArchivedDisposition(line.item.disposition);
   const qtyIssued = line.issues.reduce((sum, issue) => sum + issue.quantity, 0);
-  const qtyRemaining = Math.max(0, line.qtyRequested - line.qtyPicked);
+  const qtyRemaining = archived
+    ? 0
+    : Math.max(0, line.qtyRequested - qtyPicked);
   const qtyOutstanding = Math.max(
     0,
-    line.qtyPicked - line.qtyReturned - qtyIssued,
+    qtyPicked - qtyReturned - qtyIssued,
   );
   return {
     id: line.id,
     itemId: line.itemId,
     qtyRequested: line.qtyRequested,
-    qtyPicked: line.qtyPicked,
-    qtyReturned: line.qtyReturned,
+    qtyPicked,
+    qtyReturned,
     qtyRemaining,
     qtyOutstanding,
     qtyIssued,
     item: {
       id: line.item.id,
       name: line.item.name,
-      warehouseId: line.item.warehouseId,
-      quantityOwned: line.item.quantityOwned,
-      quantityAvailable: line.item.quantityAvailable,
-      locationLabel: locationLabel(line.item.locationUnit),
-      locationUnit: line.item.locationUnit
+      warehouseId: stock?.warehouseId ?? null,
+      quantityOwned: sumItemStocks(line.item.stocks, "quantityOwned"),
+      quantityAvailable: sumItemStocks(line.item.stocks, "quantityAvailable"),
+      archived,
+      locationLabel: locationLabel(stock?.locationUnit ?? null),
+      locationUnit: stock?.locationUnit
         ? {
-            id: line.item.locationUnit.id,
-            name: line.item.locationUnit.name,
-            label: line.item.locationUnit.label,
-            warehouseId: line.item.locationUnit.warehouseId,
+            id: stock.locationUnit.id,
+            name: stock.locationUnit.name,
+            label: stock.locationUnit.label,
+            warehouseId: stock.locationUnit.warehouseId,
           }
         : null,
     },
@@ -257,10 +306,11 @@ function mapOrder(order: FulfillmentOrderRecord) {
 }
 
 async function loadFulfillmentOrder(
+  organizationId: string,
   orderId: string,
 ): Promise<FulfillmentOrderRecord> {
-  const order = await prisma.eventOrder.findUnique({
-    where: { id: orderId },
+  const order = await prisma.eventOrder.findFirst({
+    where: { id: orderId, organizationId },
     include: fulfillmentOrderInclude,
   });
   if (!order) {
@@ -330,15 +380,16 @@ async function setOrderStatusByCode(
 
 export async function syncOrderStatusFromLines(
   tx: Prisma.TransactionClient,
+  organizationId: string,
   orderId: string,
 ) {
   const lines = await tx.orderLine.findMany({
-    where: { orderId },
+    where: { orderId, organizationId },
     select: {
       qtyRequested: true,
-      qtyPicked: true,
-      qtyReturned: true,
+      allocations: { select: { qtyPicked: true, qtyReturned: true } },
       issues: { select: { quantity: true } },
+      item: { select: { disposition: true } },
     },
   });
   if (lines.length === 0) {
@@ -346,12 +397,31 @@ export async function syncOrderStatusFromLines(
     return;
   }
 
-  const allPicked = lines.every((row) => row.qtyPicked >= row.qtyRequested);
-  const allReturned = lines.every((row) => {
-    const qtyIssued = row.issues.reduce((sum, issue) => sum + issue.quantity, 0);
-    return row.qtyReturned + qtyIssued >= row.qtyPicked;
+  const allPicked = lines.every((row) => {
+    const qtyPicked = row.allocations.reduce(
+      (sum, allocation) => sum + allocation.qtyPicked,
+      0,
+    );
+    return (
+      isIssueArchivedDisposition(row.item.disposition) ||
+      qtyPicked >= row.qtyRequested
+    );
   });
-  const hasPickedQty = lines.some((row) => row.qtyPicked > 0);
+  const allReturned = lines.every((row) => {
+    const qtyPicked = row.allocations.reduce(
+      (sum, allocation) => sum + allocation.qtyPicked,
+      0,
+    );
+    const qtyReturned = row.allocations.reduce(
+      (sum, allocation) => sum + allocation.qtyReturned,
+      0,
+    );
+    const qtyIssued = row.issues.reduce((sum, issue) => sum + issue.quantity, 0);
+    return qtyReturned + qtyIssued >= qtyPicked;
+  });
+  const hasPickedQty = lines.some((row) =>
+    row.allocations.some((allocation) => allocation.qtyPicked > 0),
+  );
 
   if (allPicked && allReturned && hasPickedQty) {
     await setOrderStatusByCode(tx, orderId, ORDER_STATUS_RETURNED);
@@ -364,39 +434,52 @@ export async function syncOrderStatusFromLines(
   await setOrderStatusByCode(tx, orderId, ORDER_STATUS_PAID);
 }
 
-export async function listPickupOrders() {
+export async function listPickupOrders(organizationId: string) {
   const orders = await prisma.eventOrder.findMany({
-    where: { status: { code: { in: pickupStatusCodes } } },
+    where: {
+      organizationId,
+      status: { code: { in: pickupStatusCodes } },
+    },
     include: fulfillmentOrderInclude,
     orderBy: [{ eventDate: "asc" }, { createdAt: "desc" }],
   });
   return orders.map(mapOrder);
 }
 
-export async function getPickupOrder(orderId: string) {
-  const order = await loadFulfillmentOrder(orderId);
+export async function getPickupOrder(
+  organizationId: string,
+  orderId: string,
+) {
+  const order = await loadFulfillmentOrder(organizationId, orderId);
   assertPickupViewable(order);
   return mapOrder(order);
 }
 
-export async function listReturnOrders() {
+export async function listReturnOrders(organizationId: string) {
   const orders = await prisma.eventOrder.findMany({
-    where: { status: { code: { in: returnStatusCodes } } },
+    where: {
+      organizationId,
+      status: { code: { in: returnStatusCodes } },
+    },
     include: fulfillmentOrderInclude,
     orderBy: [{ eventDate: "asc" }, { createdAt: "desc" }],
   });
   return orders.map(mapOrder);
 }
 
-export async function getReturnOrder(orderId: string) {
-  const order = await loadFulfillmentOrder(orderId);
+export async function getReturnOrder(
+  organizationId: string,
+  orderId: string,
+) {
+  const order = await loadFulfillmentOrder(organizationId, orderId);
   assertReturnViewable(order);
   return mapOrder(order);
 }
 
-async function findQr(idOrPayload: string) {
+async function findQr(organizationId: string, idOrPayload: string) {
   const qrCode = await prisma.qrCode.findFirst({
     where: {
+      organizationId,
       OR: [{ id: idOrPayload }, { payload: idOrPayload }],
     },
     include: {
@@ -413,10 +496,8 @@ async function findQr(idOrPayload: string) {
       item: {
         select: {
           id: true,
-          warehouseId: true,
           name: true,
           qrCodeId: true,
-          locationUnitId: true,
         },
       },
     },
@@ -428,6 +509,7 @@ async function findQr(idOrPayload: string) {
 }
 
 export async function scanFulfillmentQr(
+  organizationId: string,
   orderId: string,
   payload: string,
   mode: FulfillmentMode,
@@ -440,16 +522,16 @@ export async function scanFulfillmentQr(
 
   const order =
     mode === "pickup"
-      ? await loadFulfillmentOrder(orderId).then((row) => {
+      ? await loadFulfillmentOrder(organizationId, orderId).then((row) => {
           assertPickupEligible(row);
           return row;
         })
-      : await loadFulfillmentOrder(orderId).then((row) => {
+      : await loadFulfillmentOrder(organizationId, orderId).then((row) => {
           assertReturnEligible(row);
           return row;
         });
 
-  const qrCode = await findQr(trimmed);
+  const qrCode = await findQr(organizationId, trimmed);
   const mapped = mapOrder(order);
 
   if (qrCode.type.code === QR_CODE_TYPE_LOCATION) {
@@ -474,8 +556,9 @@ export async function scanFulfillmentQr(
           "That item is not on this order",
         );
       }
-      if (line.item.locationUnit) {
-        assertHomeLocation(line.item.locationUnit, qrCode.locationUnit.id);
+      const stock = primaryAllocationStock(line);
+      if (stock?.locationUnit) {
+        assertHomeLocation(stock.locationUnit, qrCode.locationUnit.id);
       }
     }
     return {
@@ -500,6 +583,14 @@ export async function scanFulfillmentQr(
     );
   }
 
+  if (line.item.archived && mode === "pickup") {
+    throw new OrderServiceError(
+      "ITEM_ARCHIVED",
+      "This item is archived (missing or broken).",
+      409,
+    );
+  }
+
   if (mode === "pickup" && line.qtyRemaining === 0) {
     throw new OrderServiceError(
       "LINE_COMPLETE",
@@ -520,21 +611,45 @@ export async function scanFulfillmentQr(
   };
 }
 
-async function getMappedOrder(orderId: string) {
-  return mapOrder(await loadFulfillmentOrder(orderId));
+async function getMappedOrder(organizationId: string, orderId: string) {
+  return mapOrder(await loadFulfillmentOrder(organizationId, orderId));
+}
+
+async function findPickStock(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  itemId: string,
+  warehouseId?: string,
+) {
+  return tx.inventoryStock.findFirst({
+    where: {
+      organizationId,
+      itemId,
+      ...(warehouseId ? { warehouseId } : {}),
+      quantityAvailable: { gt: 0 },
+    },
+    orderBy: [{ quantityAvailable: "desc" }, { createdAt: "asc" }],
+  });
 }
 
 export async function pickOrderLine(
+  organizationId: string,
   orderId: string,
   itemId: string,
   qty: number,
+  warehouseId?: string,
 ) {
   return prisma.$transaction(async (tx) => {
-    const order = await tx.eventOrder.findUnique({
-      where: { id: orderId },
+    const order = await tx.eventOrder.findFirst({
+      where: { id: orderId, organizationId },
       include: {
         status: true,
-        lines: { include: { item: true } },
+        lines: {
+          include: {
+            item: { select: { disposition: true } },
+            allocations: true,
+          },
+        },
       },
     });
     if (!order) {
@@ -556,48 +671,102 @@ export async function pickOrderLine(
       );
     }
 
-    const remaining = line.qtyRequested - line.qtyPicked;
+    if (isIssueArchivedDisposition(line.item.disposition)) {
+      throw new OrderServiceError(
+        "ITEM_ARCHIVED",
+        "This item is archived (missing or broken).",
+        409,
+      );
+    }
+
+    const qtyPicked = line.allocations.reduce(
+      (sum, allocation) => sum + allocation.qtyPicked,
+      0,
+    );
+    const remaining = line.qtyRequested - qtyPicked;
     if (qty > remaining) {
       throw new OrderServiceError(
         "OVER_PICK",
         `Cannot pick more than remaining (${remaining})`,
       );
     }
-    if (qty > line.item.quantityAvailable) {
+
+    const stock = await findPickStock(tx, organizationId, itemId, warehouseId);
+    if (!stock) {
       throw new OrderServiceError(
         "INSUFFICIENT_AVAILABLE",
-        `Only ${line.item.quantityAvailable} available`,
+        "No available stock for this item",
+      );
+    }
+    if (qty > stock.quantityAvailable) {
+      throw new OrderServiceError(
+        "INSUFFICIENT_AVAILABLE",
+        `Only ${stock.quantityAvailable} available`,
       );
     }
 
-    await tx.orderLine.update({
-      where: { id: line.id },
-      data: { qtyPicked: { increment: qty } },
+    const existingAllocation = await tx.orderLineAllocation.findUnique({
+      where: {
+        orderLineId_inventoryStockId: {
+          orderLineId: line.id,
+          inventoryStockId: stock.id,
+        },
+      },
     });
-    await tx.item.update({
-      where: { id: line.itemId },
+
+    if (existingAllocation) {
+      const nextPicked = existingAllocation.qtyPicked + qty;
+      await tx.orderLineAllocation.update({
+        where: { id: existingAllocation.id },
+        data: {
+          qtyPicked: { increment: qty },
+          qtyAllocated: Math.max(existingAllocation.qtyAllocated, nextPicked),
+        },
+      });
+    } else {
+      await tx.orderLineAllocation.create({
+        data: {
+          organizationId,
+          orderLineId: line.id,
+          inventoryStockId: stock.id,
+          qtyAllocated: qty,
+          qtyPicked: qty,
+        },
+      });
+    }
+
+    await tx.inventoryStock.update({
+      where: { id: stock.id },
       data: { quantityAvailable: { decrement: qty } },
     });
 
-    await syncOrderStatusFromLines(tx, orderId);
-  }).then(() => getMappedOrder(orderId));
+    await syncOrderStatusFromLines(tx, organizationId, orderId);
+  }).then(() => getMappedOrder(organizationId, orderId));
 }
 
 export async function returnOrderLine(
+  organizationId: string,
   orderId: string,
   itemId: string,
   qty: number,
   locationUnitId: string,
 ) {
   await prisma.$transaction(async (tx) => {
-    const order = await tx.eventOrder.findUnique({
-      where: { id: orderId },
+    const order = await tx.eventOrder.findFirst({
+      where: { id: orderId, organizationId },
       include: {
         status: true,
         lines: {
           include: {
-            item: {
-              include: { locationUnit: { select: locationUnitPathSelect } },
+            allocations: {
+              include: {
+                inventoryStock: {
+                  include: {
+                    locationUnit: { select: locationUnitPathSelect },
+                  },
+                },
+              },
+              orderBy: { qtyPicked: "desc" },
             },
           },
         },
@@ -622,13 +791,20 @@ export async function returnOrderLine(
       );
     }
 
-    const outstanding = line.qtyPicked - line.qtyReturned;
+    const qtyPicked = line.allocations.reduce(
+      (sum, allocation) => sum + allocation.qtyPicked,
+      0,
+    );
+    const qtyReturned = line.allocations.reduce(
+      (sum, allocation) => sum + allocation.qtyReturned,
+      0,
+    );
     const issued = await tx.issue.aggregate({
-      where: { orderLineId: line.id },
+      where: { orderLineId: line.id, organizationId },
       _sum: { quantity: true },
     });
     const qtyIssued = issued._sum.quantity ?? 0;
-    const remainingToReturn = outstanding - qtyIssued;
+    const remainingToReturn = qtyPicked - qtyReturned - qtyIssued;
     if (qty > remainingToReturn) {
       throw new OrderServiceError(
         "OVER_RETURN",
@@ -636,8 +812,19 @@ export async function returnOrderLine(
       );
     }
 
-    const location = await tx.locationUnit.findUnique({
-      where: { id: locationUnitId },
+    const allocation =
+      line.allocations.find(
+        (row) => row.qtyPicked - row.qtyReturned > 0,
+      ) ?? line.allocations[0];
+    if (!allocation) {
+      throw new OrderServiceError(
+        "OVER_RETURN",
+        "No picked allocation exists for this line",
+      );
+    }
+
+    const location = await tx.locationUnit.findFirst({
+      where: { id: locationUnitId, organizationId },
     });
     if (!location) {
       throw new OrderServiceError(
@@ -646,35 +833,39 @@ export async function returnOrderLine(
         404,
       );
     }
-    if (location.warehouseId !== line.item.warehouseId) {
+    if (location.warehouseId !== allocation.inventoryStock.warehouseId) {
       throw new OrderServiceError(
         "LOCATION_WRONG_WAREHOUSE",
-        "Location is not in the item's warehouse",
+        "Location is not in the allocation warehouse",
       );
     }
-    if (line.item.locationUnit) {
-      assertHomeLocation(line.item.locationUnit, location.id);
+    if (allocation.inventoryStock.locationUnit) {
+      assertHomeLocation(
+        allocation.inventoryStock.locationUnit,
+        location.id,
+      );
     }
 
-    await tx.orderLine.update({
-      where: { id: line.id },
+    await tx.orderLineAllocation.update({
+      where: { id: allocation.id },
       data: { qtyReturned: { increment: qty } },
     });
-    await tx.item.update({
-      where: { id: line.itemId },
+    await tx.inventoryStock.update({
+      where: { id: allocation.inventoryStockId },
       data: {
         quantityAvailable: { increment: qty },
         locationUnitId: location.id,
       },
     });
 
-    await syncOrderStatusFromLines(tx, orderId);
+    await syncOrderStatusFromLines(tx, organizationId, orderId);
   });
 
-  return getMappedOrder(orderId);
+  return getMappedOrder(organizationId, orderId);
 }
 
 export async function reportReturnIssue(
+  organizationId: string,
   orderId: string,
   createdByUserId: string,
   input: {
@@ -686,13 +877,20 @@ export async function reportReturnIssue(
   options?: { requireEligible?: boolean },
 ) {
   await prisma.$transaction(async (tx) => {
-    const order = await tx.eventOrder.findUnique({
-      where: { id: orderId },
+    const order = await tx.eventOrder.findFirst({
+      where: { id: orderId, organizationId },
       include: {
         status: true,
         lines: {
           include: {
-            item: true,
+            item: {
+              include: {
+                stocks: {
+                  orderBy: { createdAt: "asc" },
+                },
+              },
+            },
+            allocations: true,
             issues: { select: { quantity: true } },
           },
         },
@@ -719,24 +917,37 @@ export async function reportReturnIssue(
       );
     }
 
+    const qtyPicked = line.allocations.reduce(
+      (sum, allocation) => sum + allocation.qtyPicked,
+      0,
+    );
+    const qtyReturned = line.allocations.reduce(
+      (sum, allocation) => sum + allocation.qtyReturned,
+      0,
+    );
     const qtyIssued = line.issues.reduce((sum, issue) => sum + issue.quantity, 0);
-    const remainingToAccount =
-      line.qtyPicked - line.qtyReturned - qtyIssued;
+    const remainingToAccount = qtyPicked - qtyReturned - qtyIssued;
     if (input.quantity > remainingToAccount) {
       throw new OrderServiceError(
         "OVER_ISSUE",
         `Cannot report more than unreturned quantity (${remainingToAccount})`,
       );
     }
-    if (input.quantity > line.item.quantityOwned) {
+
+    const orgOwned = line.item.stocks.reduce(
+      (sum, stock) => sum + stock.quantityOwned,
+      0,
+    );
+    if (input.quantity > orgOwned) {
       throw new OrderServiceError(
         "INSUFFICIENT_OWNED",
-        `Only ${line.item.quantityOwned} owned`,
+        `Only ${orgOwned} owned`,
       );
     }
 
     await tx.issue.create({
       data: {
+        organizationId,
         type: input.type,
         itemId: line.itemId,
         orderLineId: line.id,
@@ -745,13 +956,36 @@ export async function reportReturnIssue(
         createdByUserId,
       },
     });
-    await tx.item.update({
-      where: { id: line.itemId },
-      data: { quantityOwned: { decrement: input.quantity } },
-    });
 
-    await syncOrderStatusFromLines(tx, orderId);
+    let remaining = input.quantity;
+    for (const stock of line.item.stocks) {
+      if (remaining <= 0) {
+        break;
+      }
+      const take = Math.min(stock.quantityOwned, remaining);
+      if (take <= 0) {
+        continue;
+      }
+      await tx.inventoryStock.update({
+        where: { id: stock.id },
+        data: {
+          quantityOwned: { decrement: take },
+          quantityAvailable: { decrement: Math.min(stock.quantityAvailable, take) },
+        },
+      });
+      remaining -= take;
+    }
+
+    const nextOwned = orgOwned - input.quantity;
+    if (nextOwned <= 0) {
+      await tx.item.update({
+        where: { id: line.itemId },
+        data: { disposition: input.type },
+      });
+    }
+
+    await syncOrderStatusFromLines(tx, organizationId, orderId);
   });
 
-  return getMappedOrder(orderId);
+  return getMappedOrder(organizationId, orderId);
 }

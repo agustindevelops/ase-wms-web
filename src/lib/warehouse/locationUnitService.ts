@@ -58,6 +58,7 @@ export function parseLocationUnitInput(
 
 /** Type is server-owned. Root → ZONE; otherwise the seeded child of the parent type. */
 async function resolveLocationUnitTypeId(
+  organizationId: string,
   warehouseId: string,
   parentLocationUnitId: string | null,
 ): Promise<string> {
@@ -65,7 +66,7 @@ async function resolveLocationUnitTypeId(
 
   if (parentLocationUnitId) {
     const parent = await prisma.locationUnit.findFirst({
-      where: { id: parentLocationUnitId, warehouseId },
+      where: { id: parentLocationUnitId, warehouseId, organizationId },
       include: { type: { select: { code: true } } },
     });
     if (!parent) {
@@ -93,6 +94,7 @@ async function resolveLocationUnitTypeId(
 }
 
 async function assertParentInWarehouse(
+  organizationId: string,
   warehouseId: string,
   parentLocationUnitId: string | null,
   excludeId?: string,
@@ -109,7 +111,7 @@ async function assertParentInWarehouse(
   }
 
   const parent = await prisma.locationUnit.findFirst({
-    where: { id: parentLocationUnitId, warehouseId },
+    where: { id: parentLocationUnitId, warehouseId, organizationId },
   });
   if (!parent) {
     throw new WarehouseServiceError(
@@ -134,16 +136,23 @@ async function assertParentInWarehouse(
       }
       seen.add(current.parentLocationUnitId);
       current = await prisma.locationUnit.findFirst({
-        where: { id: current.parentLocationUnitId, warehouseId },
+        where: {
+          id: current.parentLocationUnitId,
+          warehouseId,
+          organizationId,
+        },
       });
     }
   }
 }
 
-export async function getWarehouseView(warehouseId: string) {
+export async function getWarehouseView(
+  organizationId: string,
+  warehouseId: string,
+) {
   const [warehouse, locationUnitTypes] = await Promise.all([
-    prisma.warehouse.findUnique({
-      where: { id: warehouseId },
+    prisma.warehouse.findFirst({
+      where: { id: warehouseId, organizationId },
       include: {
         address: true,
         locationUnits: {
@@ -178,11 +187,12 @@ export async function getWarehouseView(warehouseId: string) {
 }
 
 export async function getLocationUnitWithChildren(
+  organizationId: string,
   warehouseId: string,
   id: string,
 ) {
   const row = await prisma.locationUnit.findFirst({
-    where: { id, warehouseId },
+    where: { id, warehouseId, organizationId },
     include: {
       type: { select: { id: true, code: true, name: true } },
       qrCode: true,
@@ -213,17 +223,24 @@ export async function getLocationUnitWithChildren(
 }
 
 export async function createLocationUnit(
+  organizationId: string,
   warehouseId: string,
   input: LocationUnitInput,
 ) {
-  await assertParentInWarehouse(warehouseId, input.parentLocationUnitId);
+  await assertParentInWarehouse(
+    organizationId,
+    warehouseId,
+    input.parentLocationUnitId,
+  );
   const locationUnitTypeId = await resolveLocationUnitTypeId(
+    organizationId,
     warehouseId,
     input.parentLocationUnitId,
   );
 
   return prisma.locationUnit.create({
     data: {
+      organizationId,
       warehouseId,
       name: input.name,
       label: input.label,
@@ -235,12 +252,13 @@ export async function createLocationUnit(
 }
 
 export async function replaceLocationUnit(
+  organizationId: string,
   warehouseId: string,
   id: string,
   input: LocationUnitInput,
 ) {
   const existing = await prisma.locationUnit.findFirst({
-    where: { id, warehouseId },
+    where: { id, warehouseId, organizationId },
   });
   if (!existing) {
     throw new WarehouseServiceError(
@@ -250,12 +268,18 @@ export async function replaceLocationUnit(
     );
   }
 
-  await assertParentInWarehouse(warehouseId, input.parentLocationUnitId, id);
+  await assertParentInWarehouse(
+    organizationId,
+    warehouseId,
+    input.parentLocationUnitId,
+    id,
+  );
 
   const locationUnitTypeId =
     input.parentLocationUnitId === existing.parentLocationUnitId
       ? existing.locationUnitTypeId
       : await resolveLocationUnitTypeId(
+          organizationId,
           warehouseId,
           input.parentLocationUnitId,
         );
@@ -272,9 +296,13 @@ export async function replaceLocationUnit(
   });
 }
 
-export async function deleteLocationUnit(warehouseId: string, id: string) {
+export async function deleteLocationUnit(
+  organizationId: string,
+  warehouseId: string,
+  id: string,
+) {
   const existing = await prisma.locationUnit.findFirst({
-    where: { id, warehouseId },
+    where: { id, warehouseId, organizationId },
     include: { children: { select: { id: true }, take: 1 } },
   });
 

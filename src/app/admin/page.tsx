@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 export default function AdminPage() {
-  const { user, warehouseId } = useAuthContext();
+  const { user, organizationId } = useAuthContext();
   const [apiStatus, setApiStatus] = useState<string | null>(null);
   const [apiBusy, setApiBusy] = useState(false);
 
@@ -29,7 +29,7 @@ export default function AdminPage() {
       }
 
       setApiStatus(
-        `OK — db ${health.db}; signed in as ${user.email}; warehouse ${warehouseId ?? "none on token"}`,
+        `OK — db ${health.db}; signed in as ${user.email}; org ${organizationId ?? "none on token"}`,
       );
     } catch (error) {
       setApiStatus(

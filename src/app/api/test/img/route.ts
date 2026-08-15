@@ -32,6 +32,7 @@ export async function GET(request: Request) {
   try {
     const file = await getOwnedFile({
       userId: auth.user.id,
+      organizationId: auth.organizationId,
       fileId,
     });
 

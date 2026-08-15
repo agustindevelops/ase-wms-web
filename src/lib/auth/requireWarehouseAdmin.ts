@@ -1,90 +1,55 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import type { DecodedIdToken } from "firebase-admin/auth";
 import {
   isAuthFailure,
-  requireFirebaseUser,
+  requireAdmin,
+  requireOrgContext,
   type AuthFailure,
-  type AuthSuccess,
+  type OrgAuthContext,
 } from "@/lib/auth/requireAuth";
-import { hasWarehouseAdminClaim } from "@/lib/auth/wmsClaims";
-import { ADMIN_ROLE_CODE } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
 import { getInventoryItem, type ItemRecord } from "@/lib/item/catalogService";
 import { CatalogServiceError } from "@/lib/item/errors";
 
-export type WarehouseAdminContext = AuthSuccess & {
+export type WarehouseAdminContext = OrgAuthContext & {
   warehouseId: string;
 };
 
-export type ItemWarehouseAdminContext = WarehouseAdminContext & {
+export type ItemWarehouseAdminContext = OrgAuthContext & {
+  warehouseId: string | null;
   item: ItemRecord;
 };
 
-type CachedAdmin = {
-  expiresAt: number;
-};
-
-const ADMIN_CACHE_TTL_MS = 30_000;
-const adminCache = new Map<string, CachedAdmin>();
-
-function forbidden(): AuthFailure {
+function forbiddenWarehouse(): AuthFailure {
   return {
     response: NextResponse.json(
       {
         error: "Forbidden",
-        message: "Admin membership required for this warehouse",
+        message: "Warehouse not found in this organization",
       },
       { status: 403 },
     ),
   };
 }
 
-function cacheKey(firebaseUid: string, warehouseId: string) {
-  return `${firebaseUid}:${warehouseId}`;
-}
-
-async function assertWarehouseAdmin(
-  decoded: DecodedIdToken,
+export async function assertWarehouseInOrg(
+  organizationId: string,
   warehouseId: string,
 ): Promise<true | AuthFailure> {
-  if (hasWarehouseAdminClaim(decoded, warehouseId)) {
-    return true;
-  }
-
-  const key = cacheKey(decoded.uid, warehouseId);
-  const cached = adminCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) {
-    return true;
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { firebaseUid: decoded.uid },
-    include: {
-      memberships: {
-        where: { warehouseId },
-        include: { role: true },
-        take: 1,
-      },
-    },
+  const warehouse = await prisma.warehouse.findFirst({
+    where: { id: warehouseId, organizationId },
+    select: { id: true },
   });
-
-  const membership = user?.memberships[0];
-  if (!user || !membership || membership.role.code !== ADMIN_ROLE_CODE) {
-    return forbidden();
+  if (!warehouse) {
+    return forbiddenWarehouse();
   }
-
-  adminCache.set(key, {
-    expiresAt: Date.now() + ADMIN_CACHE_TTL_MS,
-  });
-
   return true;
 }
 
 /**
- * Warehouse-scoped ADMIN gate for `/api/warehouse/{warehouseId}/*`.
- * Prefers Firebase custom claims (`wms[warehouseId]=ADMIN`); falls back to DB.
+ * Org admin + warehouse belongs to the token organization.
+ * Used for `/api/warehouse/{warehouseId}/*`.
  */
 export async function requireWarehouseAdmin(
   request: Request,
@@ -99,25 +64,24 @@ export async function requireWarehouseAdmin(
     };
   }
 
-  const auth = await requireFirebaseUser(request);
+  const auth = await requireAdmin(request);
   if (isAuthFailure(auth)) {
     return auth;
   }
 
-  const allowed = await assertWarehouseAdmin(auth.decoded, warehouseId);
+  const allowed = await assertWarehouseInOrg(auth.organizationId, warehouseId);
   if (allowed !== true) {
     return allowed;
   }
 
   return {
-    decoded: auth.decoded,
+    ...auth,
     warehouseId,
   };
 }
 
 /**
- * Item-scoped ADMIN gate for `/api/item/{itemId}/*`.
- * Loads the item, then requires warehouse admin on its warehouse.
+ * Org admin + item belongs to the token organization.
  */
 export async function requireItemWarehouseAdmin(
   request: Request,
@@ -132,14 +96,14 @@ export async function requireItemWarehouseAdmin(
     };
   }
 
-  const auth = await requireFirebaseUser(request);
+  const auth = await requireAdmin(request);
   if (isAuthFailure(auth)) {
     return auth;
   }
 
   let item: ItemRecord;
   try {
-    item = await getInventoryItem(itemId);
+    item = await getInventoryItem(auth.organizationId, itemId);
   } catch (error) {
     if (error instanceof CatalogServiceError && error.status === 404) {
       return {
@@ -152,27 +116,21 @@ export async function requireItemWarehouseAdmin(
     throw error;
   }
 
-  const allowed = await assertWarehouseAdmin(auth.decoded, item.warehouseId);
-  if (allowed !== true) {
-    return allowed;
-  }
-
   return {
-    decoded: auth.decoded,
-    warehouseId: item.warehouseId,
+    ...auth,
+    warehouseId: item.stocks[0]?.warehouseId ?? null,
     item,
   };
 }
 
 /**
- * Verify the token, then authorize from claims when present so the membership
- * DB round-trip is skipped. Otherwise membership check and the read run in parallel.
+ * Verify org admin, then confirm the warehouse is in-org before (or while) loading.
  */
 export async function withWarehouseAdminRead<T>(
   request: Request,
   warehouseId: string,
-  load: () => Promise<T>,
-): Promise<{ ok: true; data: T } | AuthFailure> {
+  load: (organizationId: string) => Promise<T>,
+): Promise<{ ok: true; data: T; organizationId: string } | AuthFailure> {
   if (!warehouseId) {
     return {
       response: NextResponse.json(
@@ -182,30 +140,19 @@ export async function withWarehouseAdminRead<T>(
     };
   }
 
-  const auth = await requireFirebaseUser(request);
+  const auth = await requireOrgContext(request);
   if (isAuthFailure(auth)) {
     return auth;
   }
 
-  if (hasWarehouseAdminClaim(auth.decoded, warehouseId)) {
-    return { ok: true, data: await load() };
-  }
-
-  const [allowed, data] = await Promise.all([
-    assertWarehouseAdmin(auth.decoded, warehouseId),
-    load().then(
-      (value) => ({ ok: true as const, value }),
-      (error: unknown) => ({ ok: false as const, error }),
-    ),
-  ]);
-
+  const allowed = await assertWarehouseInOrg(auth.organizationId, warehouseId);
   if (allowed !== true) {
     return allowed;
   }
 
-  if (!data.ok) {
-    throw data.error;
-  }
-
-  return { ok: true, data: data.value };
+  return {
+    ok: true,
+    organizationId: auth.organizationId,
+    data: await load(auth.organizationId),
+  };
 }

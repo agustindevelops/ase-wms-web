@@ -28,13 +28,19 @@ export async function GET(request: Request) {
   }
 
   try {
-    const filters = parseInventoryListFilters(new URL(request.url).searchParams);
+    const filters = parseInventoryListFilters(
+      auth.organizationId,
+      new URL(request.url).searchParams,
+    );
     const [rawItems, locations, warehouses] = await Promise.all([
       listInventoryItems(filters),
-      listInventoryLocationPaths(filters.warehouseId),
-      listWarehouses(),
+      listInventoryLocationPaths(auth.organizationId, filters.warehouseId),
+      listWarehouses(auth.organizationId),
     ]);
-    const items = await withItemsReadUrls(rawItems);
+    const items = await withItemsReadUrls(rawItems, {
+      organizationId: auth.organizationId,
+      warehouseId: filters.warehouseId,
+    });
     return NextResponse.json({ items, locations, warehouses });
   } catch (error) {
     return toCatalogErrorResponse(error);
@@ -59,7 +65,10 @@ export async function POST(request: Request) {
       return auth.response;
     }
 
-    const item = await withItemReadUrls(await createCatalogItem(input));
+    const item = await withItemReadUrls(
+      await createCatalogItem(auth.organizationId, input),
+      { organizationId: auth.organizationId, warehouseId: input.warehouseId },
+    );
     return NextResponse.json({ item }, { status: 201 });
   } catch (error) {
     return toCatalogErrorResponse(error);

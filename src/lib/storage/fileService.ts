@@ -43,6 +43,7 @@ export type VerifyFileResult = {
 
 export async function signFileUpload(input: {
   userId: string;
+  organizationId: string;
   contentType: string;
   byteSize?: number | null;
 }): Promise<SignFileResult> {
@@ -70,6 +71,7 @@ export async function signFileUpload(input: {
   const file = await prisma.$transaction(async (tx) => {
     const created = await tx.file.create({
       data: {
+        organizationId: input.organizationId,
         uploadedByUserId: input.userId,
         s3Key: "pending",
         contentType: input.contentType,
@@ -106,12 +108,14 @@ export async function signFileUpload(input: {
 
 export async function verifyFileUpload(input: {
   userId: string;
+  organizationId: string;
   fileId: string;
 }): Promise<VerifyFileResult> {
   const file = await prisma.file.findFirst({
     where: {
       id: input.fileId,
       uploadedByUserId: input.userId,
+      organizationId: input.organizationId,
     },
   });
 
@@ -213,12 +217,14 @@ export async function verifyFileUpload(input: {
 
 export async function getOwnedFile(input: {
   userId: string;
+  organizationId: string;
   fileId: string;
 }): Promise<File> {
   const file = await prisma.file.findFirst({
     where: {
       id: input.fileId,
       uploadedByUserId: input.userId,
+      organizationId: input.organizationId,
     },
   });
 
@@ -231,6 +237,7 @@ export async function getOwnedFile(input: {
 
 export async function deleteOwnedFile(input: {
   userId: string;
+  organizationId: string;
   fileId: string;
 }): Promise<File> {
   const file = await getOwnedFile(input);

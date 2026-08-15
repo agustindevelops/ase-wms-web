@@ -26,9 +26,15 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    const result = await createItemQrCode(auth.item.id);
+    const result = await createItemQrCode(auth.organizationId, auth.item.id);
     return NextResponse.json(
-      { ...result, item: await withItemReadUrls(result.item) },
+      {
+        ...result,
+        item: await withItemReadUrls(result.item, {
+          organizationId: auth.organizationId,
+          warehouseId: auth.warehouseId ?? undefined,
+        }),
+      },
       { status: 201 },
     );
   } catch (error) {
@@ -48,7 +54,7 @@ export async function DELETE(request: Request, context: RouteContext) {
   }
 
   try {
-    const result = await deleteItemQrCode(auth.item.id);
+    const result = await deleteItemQrCode(auth.organizationId, auth.item.id);
     return NextResponse.json(result);
   } catch (error) {
     return toCatalogErrorResponse(error);

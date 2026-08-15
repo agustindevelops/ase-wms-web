@@ -20,7 +20,24 @@ const orderDetailInclude = {
         select: {
           id: true,
           name: true,
-          warehouseId: true,
+          stocks: {
+            select: {
+              warehouseId: true,
+              warehouse: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
+      allocations: {
+        select: {
+          qtyPicked: true,
+          qtyReturned: true,
+          inventoryStock: {
+            select: {
+              warehouseId: true,
+              warehouse: { select: { id: true, name: true } },
+            },
+          },
         },
       },
       issues: {
@@ -42,9 +59,18 @@ export type OrderListRecord = Prisma.EventOrderGetPayload<{
   include: typeof orderListInclude;
 }>;
 
-export type OrderDetailRecord = Prisma.EventOrderGetPayload<{
+type OrderDetailRaw = Prisma.EventOrderGetPayload<{
   include: typeof orderDetailInclude;
 }>;
+
+export type OrderLineDetail = OrderDetailRaw["lines"][number] & {
+  qtyPicked: number;
+  qtyReturned: number;
+};
+
+export type OrderDetailRecord = Omit<OrderDetailRaw, "lines"> & {
+  lines: OrderLineDetail[];
+};
 
 export type OrderCreateInput = {
   name: string;
@@ -64,9 +90,32 @@ export type OrderLineCreateInput = {
 
 export type OrderLineUpdateInput = {
   qtyRequested?: number;
-  qtyPicked?: number;
-  qtyReturned?: number;
 };
+
+function sumAllocationField(
+  allocations: OrderDetailRaw["lines"][number]["allocations"],
+  field: "qtyPicked" | "qtyReturned",
+) {
+  return allocations.reduce((sum, allocation) => sum + allocation[field], 0);
+}
+
+function mapOrderDetail(order: OrderDetailRaw): OrderDetailRecord {
+  return {
+    ...order,
+    lines: order.lines.map((line) => ({
+      ...line,
+      qtyPicked: sumAllocationField(line.allocations, "qtyPicked"),
+      qtyReturned: sumAllocationField(line.allocations, "qtyReturned"),
+      item: {
+        ...line.item,
+        warehouseId:
+          line.allocations[0]?.inventoryStock.warehouseId ??
+          line.item.stocks[0]?.warehouseId ??
+          null,
+      },
+    })),
+  };
+}
 
 function asRequiredName(value: unknown): string {
   if (typeof value !== "string") {
@@ -189,20 +238,19 @@ export function parseOrderLineUpdate(
   if (body.qtyRequested !== undefined) {
     input.qtyRequested = asQtyRequested(body.qtyRequested);
   }
-  if (body.qtyPicked !== undefined) {
-    input.qtyPicked = asNonNegativeInt(body.qtyPicked, "qtyPicked");
-  }
-  if (body.qtyReturned !== undefined) {
-    input.qtyReturned = asNonNegativeInt(body.qtyReturned, "qtyReturned");
-  }
   if (
-    input.qtyRequested === undefined &&
-    input.qtyPicked === undefined &&
-    input.qtyReturned === undefined
+    body.qtyPicked !== undefined ||
+    body.qtyReturned !== undefined
   ) {
     throw new OrderServiceError(
       "Bad Request",
-      "Provide qtyRequested, qtyPicked, or qtyReturned",
+      "qtyPicked and qtyReturned are managed through fulfillment allocations",
+    );
+  }
+  if (input.qtyRequested === undefined) {
+    throw new OrderServiceError(
+      "Bad Request",
+      "Provide qtyRequested",
     );
   }
   return input;
@@ -232,31 +280,39 @@ export async function listOrderStatuses() {
 }
 
 export async function listOrders(
+  organizationId: string,
   statusCodes?: string[],
 ): Promise<OrderListRecord[]> {
   return prisma.eventOrder.findMany({
-    where: statusCodes?.length
-      ? { status: { code: { in: statusCodes } } }
-      : undefined,
+    where: {
+      organizationId,
+      ...(statusCodes?.length
+        ? { status: { code: { in: statusCodes } } }
+        : {}),
+    },
     include: orderListInclude,
     orderBy: [{ eventDate: "asc" }, { createdAt: "desc" }],
   });
 }
 
-export async function getOrder(orderId: string): Promise<OrderDetailRecord> {
-  const order = await prisma.eventOrder.findUnique({
-    where: { id: orderId },
+export async function getOrder(
+  organizationId: string,
+  orderId: string,
+): Promise<OrderDetailRecord> {
+  const order = await prisma.eventOrder.findFirst({
+    where: { id: orderId, organizationId },
     include: orderDetailInclude,
   });
   if (!order) {
     throw new OrderServiceError("Not Found", "Order not found", 404);
   }
-  return order;
+  return mapOrderDetail(order);
 }
 
 export async function createOrder(
   input: OrderCreateInput,
   createdByUserId: string,
+  organizationId: string,
 ): Promise<OrderDetailRecord> {
   const status = await prisma.orderStatus.findUnique({
     where: { code: ORDER_STATUS_PAID },
@@ -269,8 +325,9 @@ export async function createOrder(
     );
   }
 
-  return prisma.eventOrder.create({
+  const order = await prisma.eventOrder.create({
     data: {
+      organizationId,
       name: input.name,
       eventDate: input.eventDate,
       statusId: status.id,
@@ -278,13 +335,15 @@ export async function createOrder(
     },
     include: orderDetailInclude,
   });
+  return mapOrderDetail(order);
 }
 
 export async function updateOrder(
+  organizationId: string,
   orderId: string,
   input: OrderUpdateInput,
 ): Promise<OrderDetailRecord> {
-  await getOrder(orderId);
+  await getOrder(organizationId, orderId);
 
   if (input.statusId) {
     const status = await prisma.orderStatus.findUnique({
@@ -295,7 +354,7 @@ export async function updateOrder(
     }
   }
 
-  return prisma.eventOrder.update({
+  const order = await prisma.eventOrder.update({
     where: { id: orderId },
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
@@ -304,16 +363,18 @@ export async function updateOrder(
     },
     include: orderDetailInclude,
   });
+  return mapOrderDetail(order);
 }
 
 export async function addOrUpdateOrderLine(
+  organizationId: string,
   orderId: string,
   input: OrderLineCreateInput,
 ): Promise<OrderDetailRecord> {
-  await getOrder(orderId);
+  await getOrder(organizationId, orderId);
 
-  const item = await prisma.item.findUnique({
-    where: { id: input.itemId },
+  const item = await prisma.item.findFirst({
+    where: { id: input.itemId, organizationId },
     select: { id: true },
   });
   if (!item) {
@@ -332,104 +393,107 @@ export async function addOrUpdateOrderLine(
         where: { id: existing.id },
         data: { qtyRequested: input.qtyRequested },
       });
-      await syncOrderStatusFromLines(tx, orderId);
+      await syncOrderStatusFromLines(tx, organizationId, orderId);
     });
-    return getOrder(orderId);
+    return getOrder(organizationId, orderId);
   }
 
   await prisma.$transaction(async (tx) => {
     await tx.orderLine.create({
       data: {
+        organizationId,
         orderId,
         itemId: input.itemId,
         qtyRequested: input.qtyRequested,
       },
     });
-    await syncOrderStatusFromLines(tx, orderId);
+    await syncOrderStatusFromLines(tx, organizationId, orderId);
   });
 
-  return getOrder(orderId);
+  return getOrder(organizationId, orderId);
 }
 
 export async function updateOrderLine(
+  organizationId: string,
   orderId: string,
   lineId: string,
   input: OrderLineUpdateInput,
 ): Promise<OrderDetailRecord> {
   await prisma.$transaction(async (tx) => {
     const line = await tx.orderLine.findFirst({
-      where: { id: lineId, orderId },
-      include: { item: true },
+      where: { id: lineId, orderId, organizationId },
     });
     if (!line) {
       throw new OrderServiceError("Not Found", "Order line not found", 404);
     }
 
-    const nextRequested = input.qtyRequested ?? line.qtyRequested;
-    const nextPicked = input.qtyPicked ?? line.qtyPicked;
-    const nextReturned = input.qtyReturned ?? line.qtyReturned;
-
-    const pickedDelta = nextPicked - line.qtyPicked;
-    const returnedDelta = nextReturned - line.qtyReturned;
-    const availableDelta = -pickedDelta + returnedDelta;
-
     await tx.orderLine.update({
       where: { id: lineId },
       data: {
-        qtyRequested: nextRequested,
-        qtyPicked: nextPicked,
-        qtyReturned: nextReturned,
+        ...(input.qtyRequested !== undefined
+          ? { qtyRequested: input.qtyRequested }
+          : {}),
       },
     });
-    if (availableDelta > 0) {
-      await tx.item.update({
-        where: { id: line.itemId },
-        data: { quantityAvailable: { increment: availableDelta } },
-      });
-    } else if (availableDelta < 0 && line.item.quantityAvailable > 0) {
-      await tx.item.update({
-        where: { id: line.itemId },
-        data: {
-          quantityAvailable: {
-            decrement: Math.min(line.item.quantityAvailable, -availableDelta),
-          },
-        },
-      });
-    }
-    await syncOrderStatusFromLines(tx, orderId);
+    await syncOrderStatusFromLines(tx, organizationId, orderId);
   });
 
-  return getOrder(orderId);
+  return getOrder(organizationId, orderId);
 }
 
 export async function deleteOrderLine(
+  organizationId: string,
   orderId: string,
   lineId: string,
 ): Promise<OrderDetailRecord> {
   await prisma.$transaction(async (tx) => {
     const line = await tx.orderLine.findFirst({
-      where: { id: lineId, orderId },
-      include: { issues: { select: { quantity: true } } },
+      where: { id: lineId, orderId, organizationId },
+      include: {
+        issues: { select: { quantity: true } },
+        allocations: {
+          include: { inventoryStock: true },
+        },
+      },
     });
     if (!line) {
       throw new OrderServiceError("Not Found", "Order line not found", 404);
     }
 
     const qtyIssued = line.issues.reduce((sum, issue) => sum + issue.quantity, 0);
-    const restoreAvailable = Math.max(
+    const totalPicked = line.allocations.reduce(
+      (sum, allocation) => sum + allocation.qtyPicked,
       0,
-      line.qtyPicked - line.qtyReturned - qtyIssued,
     );
-    if (restoreAvailable > 0) {
-      await tx.item.update({
-        where: { id: line.itemId },
-        data: { quantityAvailable: { increment: restoreAvailable } },
-      });
+    const totalReturned = line.allocations.reduce(
+      (sum, allocation) => sum + allocation.qtyReturned,
+      0,
+    );
+    let remainingRestore = Math.max(0, totalPicked - totalReturned - qtyIssued);
+
+    for (const allocation of line.allocations) {
+      if (remainingRestore <= 0) {
+        break;
+      }
+      const outstanding = Math.max(
+        0,
+        allocation.qtyPicked - allocation.qtyReturned,
+      );
+      const restoreAvailable = Math.min(outstanding, remainingRestore);
+      if (restoreAvailable > 0) {
+        await tx.inventoryStock.update({
+          where: { id: allocation.inventoryStockId },
+          data: {
+            quantityAvailable: { increment: restoreAvailable },
+          },
+        });
+        remainingRestore -= restoreAvailable;
+      }
     }
 
     await tx.orderLine.delete({ where: { id: lineId } });
-    await syncOrderStatusFromLines(tx, orderId);
+    await syncOrderStatusFromLines(tx, organizationId, orderId);
   });
 
-  return getOrder(orderId);
+  return getOrder(organizationId, orderId);
 }

@@ -13,7 +13,7 @@ export type InventoryFile = {
 
 export type InventoryItem = {
   id: string;
-  warehouseId: string;
+  warehouseId: string | null;
   name: string;
   quantityOwned: number;
   quantityAvailable: number;

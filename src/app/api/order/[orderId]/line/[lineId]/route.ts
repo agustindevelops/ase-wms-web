@@ -31,7 +31,12 @@ export async function PATCH(request: Request, context: RouteContext) {
   try {
     const { orderId, lineId } = await context.params;
     const input = parseOrderLineUpdate(parsed.value);
-    const order = await updateOrderLine(orderId, lineId, input);
+    const order = await updateOrderLine(
+      auth.organizationId,
+      orderId,
+      lineId,
+      input,
+    );
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);
@@ -50,7 +55,7 @@ export async function DELETE(request: Request, context: RouteContext) {
 
   try {
     const { orderId, lineId } = await context.params;
-    const order = await deleteOrderLine(orderId, lineId);
+    const order = await deleteOrderLine(auth.organizationId, orderId, lineId);
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);

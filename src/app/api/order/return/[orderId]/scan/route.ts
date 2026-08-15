@@ -25,7 +25,13 @@ export async function GET(request: Request, context: RouteContext) {
     const search = new URL(request.url).searchParams;
     const payload = search.get("payload")?.trim() ?? "";
     const itemId = search.get("itemId")?.trim() || undefined;
-    const result = await scanFulfillmentQr(orderId, payload, "return", itemId);
+    const result = await scanFulfillmentQr(
+      auth.organizationId,
+      orderId,
+      payload,
+      "return",
+      itemId,
+    );
     return NextResponse.json(result);
   } catch (error) {
     return toOrderErrorResponse(error);

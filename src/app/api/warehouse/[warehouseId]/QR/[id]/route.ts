@@ -30,7 +30,11 @@ export async function GET(
   }
 
   try {
-    const result = await resolveWarehouseQr(auth.warehouseId, id);
+    const result = await resolveWarehouseQr(
+      auth.organizationId,
+      auth.warehouseId,
+      id,
+    );
     return NextResponse.json(result);
   } catch (error) {
     return toCatalogErrorResponse(error);
@@ -59,7 +63,11 @@ export async function DELETE(
   }
 
   try {
-    const result = await deleteWarehouseQrCode(auth.warehouseId, id);
+    const result = await deleteWarehouseQrCode(
+      auth.organizationId,
+      auth.warehouseId,
+      id,
+    );
     return NextResponse.json(result);
   } catch (error) {
     return toWarehouseErrorResponse(error);

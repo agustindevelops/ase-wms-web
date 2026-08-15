@@ -29,7 +29,12 @@ export async function DELETE(
 
   try {
     const item = await withItemReadUrls(
-      await unbindItemFromLocation(auth.warehouseId, itemId),
+      await unbindItemFromLocation(
+        auth.organizationId,
+        auth.warehouseId,
+        itemId,
+      ),
+      { organizationId: auth.organizationId, warehouseId: auth.warehouseId },
     );
     return NextResponse.json({ item });
   } catch (error) {

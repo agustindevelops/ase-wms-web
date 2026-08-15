@@ -23,7 +23,12 @@ export async function GET(request: Request, context: RouteContext) {
     const { orderId } = await context.params;
     const payload =
       new URL(request.url).searchParams.get("payload")?.trim() ?? "";
-    const result = await scanFulfillmentQr(orderId, payload, "pickup");
+    const result = await scanFulfillmentQr(
+      auth.organizationId,
+      orderId,
+      payload,
+      "pickup",
+    );
     return NextResponse.json(result);
   } catch (error) {
     return toOrderErrorResponse(error);

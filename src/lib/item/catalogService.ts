@@ -8,17 +8,14 @@ import {
   ITEM_MATERIALS,
   QR_CODE_TYPE_ITEM,
   QR_CODE_TYPE_LOCATION,
+  isArchivedDisposition,
 } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
 import { CatalogServiceError } from "@/lib/item/errors";
 import { getReadUrl } from "@/lib/storage/s3";
 
-const itemInclude = {
+const stockInclude = {
   warehouse: { select: { id: true, name: true } },
-  category: { select: { id: true, code: true, name: true } },
-  qrCode: {
-    select: { id: true, payload: true, typeId: true, createdAt: true },
-  },
   locationUnit: {
     select: {
       id: true,
@@ -27,6 +24,13 @@ const itemInclude = {
       warehouseId: true,
       qrCodeId: true,
     },
+  },
+} satisfies Prisma.InventoryStockInclude;
+
+const itemInclude = {
+  category: { select: { id: true, code: true, name: true } },
+  qrCode: {
+    select: { id: true, payload: true, typeId: true, createdAt: true },
   },
   files: {
     select: {
@@ -39,11 +43,14 @@ const itemInclude = {
     },
     orderBy: { sortOrder: "asc" as const },
   },
+  stocks: { include: stockInclude },
 } satisfies Prisma.ItemInclude;
 
 export type ItemRecord = Prisma.ItemGetPayload<{
   include: typeof itemInclude;
 }>;
+
+export type StockPublic = ItemRecord["stocks"][number];
 
 export type ItemFilePublic = {
   id: string;
@@ -56,6 +63,11 @@ export type ItemFilePublic = {
 
 export type ItemPublicRecord = Omit<ItemRecord, "files"> & {
   files: ItemFilePublic[];
+  quantityOwned: number;
+  quantityAvailable: number;
+  warehouseId: string | null;
+  locationUnitId: string | null;
+  locationUnit: StockPublic["locationUnit"];
   locationPath: string | null;
 };
 
@@ -97,6 +109,25 @@ export type CatalogUpdateInput = {
   material?: string | null;
   photoFileIds?: string[];
 } & Partial<CatalogDetailFields>;
+
+function scopedStocks(item: ItemRecord, warehouseId?: string) {
+  if (!warehouseId) {
+    return item.stocks;
+  }
+  return item.stocks.filter((stock) => stock.warehouseId === warehouseId);
+}
+
+function primaryStock(item: ItemRecord, warehouseId?: string) {
+  const stocks = scopedStocks(item, warehouseId);
+  return stocks[0] ?? null;
+}
+
+function sumStockField(
+  stocks: ItemRecord["stocks"],
+  field: "quantityOwned" | "quantityAvailable",
+) {
+  return stocks.reduce((sum, stock) => sum + stock[field], 0);
+}
 
 function asOptionalString(
   value: unknown,
@@ -340,10 +371,14 @@ function unitDisplayName(unit: LocationUnitPathRow): string {
 }
 
 async function loadLocationUnits(
+  organizationId: string,
   warehouseId?: string,
 ): Promise<LocationUnitPathRow[]> {
   const units = await prisma.locationUnit.findMany({
-    where: warehouseId ? { warehouseId } : undefined,
+    where: {
+      organizationId,
+      ...(warehouseId ? { warehouseId } : {}),
+    },
     select: {
       id: true,
       name: true,
@@ -365,9 +400,10 @@ async function loadLocationUnits(
 }
 
 async function loadLocationById(
+  organizationId: string,
   warehouseId?: string,
 ): Promise<Map<string, LocationUnitPathRow>> {
-  const units = await loadLocationUnits(warehouseId);
+  const units = await loadLocationUnits(organizationId, warehouseId);
   return new Map(units.map((unit) => [unit.id, unit]));
 }
 
@@ -425,9 +461,10 @@ function descendantLocationIds(
 }
 
 export async function listInventoryLocationPaths(
+  organizationId: string,
   warehouseId?: string,
 ): Promise<LocationPathOption[]> {
-  const units = await loadLocationUnits(warehouseId);
+  const units = await loadLocationUnits(organizationId, warehouseId);
   const byId = new Map(units.map((unit) => [unit.id, unit]));
   return units
     .map((unit) => ({
@@ -438,8 +475,11 @@ export async function listInventoryLocationPaths(
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export async function listWarehouses(): Promise<WarehouseOption[]> {
+export async function listWarehouses(
+  organizationId: string,
+): Promise<WarehouseOption[]> {
   return prisma.warehouse.findMany({
+    where: { organizationId },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
@@ -447,15 +487,24 @@ export async function listWarehouses(): Promise<WarehouseOption[]> {
 
 /** @deprecated Use listInventoryLocationPaths */
 export async function listWarehouseLocationPaths(
+  organizationId: string,
   warehouseId: string,
 ): Promise<LocationPathOption[]> {
-  return listInventoryLocationPaths(warehouseId);
+  return listInventoryLocationPaths(organizationId, warehouseId);
 }
 
 export async function withItemReadUrls(
   item: ItemRecord,
-  locationById?: Map<string, LocationUnitPathRow>,
+  options?: {
+    organizationId?: string;
+    warehouseId?: string;
+    locationById?: Map<string, LocationUnitPathRow>;
+  },
 ): Promise<ItemPublicRecord> {
+  const warehouseId = options?.warehouseId;
+  const stocks = scopedStocks(item, warehouseId);
+  const stock = primaryStock(item, warehouseId);
+
   const files = await Promise.all(
     item.files.map(async (file) => {
       let readUrl: string | null = file.publicUrl;
@@ -476,20 +525,45 @@ export async function withItemReadUrls(
       };
     }),
   );
-  const byId = locationById ?? (await loadLocationById(item.warehouseId));
-  const { files: _files, ...rest } = item;
+
+  const byId =
+    options?.locationById ??
+    (options?.organizationId
+      ? await loadLocationById(
+          options.organizationId,
+          stock?.warehouseId ?? warehouseId,
+        )
+      : new Map<string, LocationUnitPathRow>());
+
   return {
-    ...rest,
+    ...item,
     files,
-    locationPath: buildLocationPath(item.locationUnitId, byId),
+    stocks,
+    quantityOwned: sumStockField(stocks, "quantityOwned"),
+    quantityAvailable: sumStockField(stocks, "quantityAvailable"),
+    warehouseId: stock?.warehouseId ?? null,
+    locationUnitId: stock?.locationUnitId ?? null,
+    locationUnit: stock?.locationUnit ?? null,
+    locationPath: buildLocationPath(stock?.locationUnitId, byId),
   };
 }
 
 export async function withItemsReadUrls(
   items: ItemRecord[],
+  options?: { organizationId?: string; warehouseId?: string },
 ): Promise<ItemPublicRecord[]> {
-  const byId = await loadLocationById();
-  return Promise.all(items.map((item) => withItemReadUrls(item, byId)));
+  const byId = options?.organizationId
+    ? await loadLocationById(options.organizationId, options.warehouseId)
+    : undefined;
+  return Promise.all(
+    items.map((item) =>
+      withItemReadUrls(item, {
+        organizationId: options?.organizationId,
+        warehouseId: options?.warehouseId,
+        locationById: byId,
+      }),
+    ),
+  );
 }
 
 export async function listItemCategories() {
@@ -500,8 +574,21 @@ export async function listItemCategories() {
 }
 
 export async function createCatalogItem(
+  organizationId: string,
   input: CatalogCreateInput,
 ): Promise<ItemRecord> {
+  const warehouse = await prisma.warehouse.findFirst({
+    where: { id: input.warehouseId, organizationId },
+    select: { id: true },
+  });
+  if (!warehouse) {
+    throw new CatalogServiceError(
+      "WAREHOUSE_NOT_FOUND",
+      "warehouseId was not found in this organization",
+      404,
+    );
+  }
+
   if (input.categoryId) {
     const category = await prisma.itemCategory.findUnique({
       where: { id: input.categoryId },
@@ -517,7 +604,7 @@ export async function createCatalogItem(
 
   return prisma.$transaction(async (tx) => {
     const files = await tx.file.findMany({
-      where: { id: { in: input.photoFileIds } },
+      where: { id: { in: input.photoFileIds }, organizationId },
     });
 
     if (files.length !== input.photoFileIds.length) {
@@ -556,10 +643,8 @@ export async function createCatalogItem(
 
     const item = await tx.item.create({
       data: {
-        warehouseId: input.warehouseId,
+        organizationId,
         name: input.name,
-        quantityOwned: input.quantity,
-        quantityAvailable: input.quantity,
         categoryId: input.categoryId,
         material: input.material,
         description: input.description,
@@ -569,6 +654,16 @@ export async function createCatalogItem(
         condition: input.condition,
         disposition: input.disposition,
         notes: input.notes,
+      },
+    });
+
+    await tx.inventoryStock.create({
+      data: {
+        organizationId,
+        itemId: item.id,
+        warehouseId: input.warehouseId,
+        quantityOwned: input.quantity,
+        quantityAvailable: input.quantity,
       },
     });
 
@@ -588,7 +683,10 @@ export async function createCatalogItem(
   });
 }
 
-export async function createItemQrCode(itemId: string) {
+export async function createItemQrCode(
+  organizationId: string,
+  itemId: string,
+) {
   const itemType = await prisma.qrCodeType.findUnique({
     where: { code: QR_CODE_TYPE_ITEM },
   });
@@ -601,8 +699,8 @@ export async function createItemQrCode(itemId: string) {
   }
 
   return prisma.$transaction(async (tx) => {
-    const item = await tx.item.findUnique({
-      where: { id: itemId },
+    const item = await tx.item.findFirst({
+      where: { id: itemId, organizationId },
     });
 
     if (!item) {
@@ -623,6 +721,7 @@ export async function createItemQrCode(itemId: string) {
 
     const qrCode = await tx.qrCode.create({
       data: {
+        organizationId,
         payload: `pending-${crypto.randomUUID()}`,
         typeId: itemType.id,
       },
@@ -643,7 +742,10 @@ export async function createItemQrCode(itemId: string) {
   });
 }
 
-export async function deleteItemQrCode(itemId: string) {
+export async function deleteItemQrCode(
+  organizationId: string,
+  itemId: string,
+) {
   const itemType = await prisma.qrCodeType.findUnique({
     where: { code: QR_CODE_TYPE_ITEM },
   });
@@ -655,8 +757,8 @@ export async function deleteItemQrCode(itemId: string) {
     );
   }
 
-  const item = await prisma.item.findUnique({
-    where: { id: itemId },
+  const item = await prisma.item.findFirst({
+    where: { id: itemId, organizationId },
     include: { qrCode: true },
   });
 
@@ -693,9 +795,14 @@ export async function deleteItemQrCode(itemId: string) {
   return { id: qrCodeId, deleted: true as const };
 }
 
-export async function resolveWarehouseQr(warehouseId: string, idOrPayload: string) {
+export async function resolveWarehouseQr(
+  organizationId: string,
+  warehouseId: string,
+  idOrPayload: string,
+) {
   const qrCode = await prisma.qrCode.findFirst({
     where: {
+      organizationId,
       OR: [{ id: idOrPayload }, { payload: idOrPayload }],
     },
     include: {
@@ -712,12 +819,18 @@ export async function resolveWarehouseQr(warehouseId: string, idOrPayload: strin
       item: {
         select: {
           id: true,
-          warehouseId: true,
           name: true,
           qrCodeId: true,
-          locationUnitId: true,
-          locationUnit: {
-            select: { id: true, name: true, label: true },
+          disposition: true,
+          stocks: {
+            where: { warehouseId, organizationId },
+            select: {
+              quantityOwned: true,
+              locationUnitId: true,
+              locationUnit: {
+                select: { id: true, name: true, label: true },
+              },
+            },
           },
         },
       },
@@ -736,8 +849,21 @@ export async function resolveWarehouseQr(warehouseId: string, idOrPayload: strin
     qrCode.locationUnit?.warehouseId === warehouseId
       ? qrCode.locationUnit
       : null;
+
+  const itemStock = qrCode.item?.stocks[0] ?? null;
   const item =
-    qrCode.item?.warehouseId === warehouseId ? qrCode.item : null;
+    qrCode.item && itemStock
+      ? {
+          id: qrCode.item.id,
+          warehouseId,
+          name: qrCode.item.name,
+          qrCodeId: qrCode.item.qrCodeId,
+          locationUnitId: itemStock.locationUnitId,
+          quantityOwned: itemStock.quantityOwned,
+          disposition: qrCode.item.disposition,
+          locationUnit: itemStock.locationUnit,
+        }
+      : null;
 
   if (
     qrCode.type.code === QR_CODE_TYPE_LOCATION &&
@@ -759,6 +885,18 @@ export async function resolveWarehouseQr(warehouseId: string, idOrPayload: strin
     );
   }
 
+  if (
+    qrCode.type.code === QR_CODE_TYPE_ITEM &&
+    item &&
+    (isArchivedDisposition(item.disposition) || item.quantityOwned <= 0)
+  ) {
+    throw new CatalogServiceError(
+      "ITEM_ARCHIVED",
+      "This item is archived (missing, broken, or removed).",
+      409,
+    );
+  }
+
   return {
     qrCode: {
       id: qrCode.id,
@@ -774,16 +912,20 @@ export async function resolveWarehouseQr(warehouseId: string, idOrPayload: strin
 }
 
 export async function bindItemToLocationUnit(
+  organizationId: string,
   warehouseId: string,
   locationUnitId: string,
   itemId: string,
 ): Promise<ItemRecord> {
-  const [locationUnit, item] = await Promise.all([
+  const [locationUnit, item, stock] = await Promise.all([
     prisma.locationUnit.findFirst({
-      where: { id: locationUnitId, warehouseId },
+      where: { id: locationUnitId, warehouseId, organizationId },
     }),
     prisma.item.findFirst({
-      where: { id: itemId, warehouseId },
+      where: { id: itemId, organizationId },
+    }),
+    prisma.inventoryStock.findFirst({
+      where: { itemId, warehouseId, organizationId },
     }),
   ]);
 
@@ -795,7 +937,7 @@ export async function bindItemToLocationUnit(
     );
   }
 
-  if (!item) {
+  if (!item || !stock) {
     throw new CatalogServiceError(
       "ITEM_NOT_FOUND",
       "Item not found in this warehouse",
@@ -803,17 +945,19 @@ export async function bindItemToLocationUnit(
     );
   }
 
-  return prisma.item.update({
-    where: { id: item.id },
+  await prisma.inventoryStock.update({
+    where: { id: stock.id },
     data: { locationUnitId: locationUnit.id },
-    include: itemInclude,
   });
+
+  return getWarehouseItem(organizationId, warehouseId, itemId);
 }
 
 export type WarehouseItemLocationFilter = "none" | "set" | "all";
 export type WarehouseItemArchivedFilter = "0" | "1" | "all";
 
 export type InventoryListFilters = {
+  organizationId: string;
   warehouseId?: string;
   location: WarehouseItemLocationFilter;
   q?: string;
@@ -822,7 +966,10 @@ export type InventoryListFilters = {
   archived: WarehouseItemArchivedFilter;
 };
 
-export type WarehouseItemListFilters = Omit<InventoryListFilters, "warehouseId">;
+export type WarehouseItemListFilters = Omit<
+  InventoryListFilters,
+  "organizationId" | "warehouseId"
+>;
 
 export function parseWarehouseItemLocationFilter(
   value: string | null,
@@ -855,6 +1002,7 @@ export function parseWarehouseItemArchivedFilter(
 }
 
 export function parseInventoryListFilters(
+  organizationId: string,
   searchParams: URLSearchParams,
 ): InventoryListFilters {
   const q = searchParams.get("q")?.trim() || undefined;
@@ -863,6 +1011,7 @@ export function parseInventoryListFilters(
     searchParams.get("locationUnitId")?.trim() || undefined;
   const warehouseId = searchParams.get("warehouseId")?.trim() || undefined;
   return {
+    organizationId,
     warehouseId,
     location: parseWarehouseItemLocationFilter(searchParams.get("location")),
     q,
@@ -875,28 +1024,51 @@ export function parseInventoryListFilters(
 export function parseWarehouseItemListFilters(
   searchParams: URLSearchParams,
 ): WarehouseItemListFilters {
-  const { warehouseId: _warehouseId, ...filters } =
-    parseInventoryListFilters(searchParams);
+  const { organizationId: _organizationId, warehouseId: _warehouseId, ...filters } =
+    parseInventoryListFilters("", searchParams);
   return filters;
 }
 
 const archivedDispositionCodes: string[] = [...ARCHIVED_DISPOSITION_CODES];
 
+function stockLocationFilter(
+  warehouseId: string | undefined,
+  locationUnitId: { equals?: null; not?: null; in?: string[] },
+): Prisma.InventoryStockWhereInput {
+  return {
+    ...(warehouseId ? { warehouseId } : {}),
+    locationUnitId,
+  };
+}
+
 export async function listInventoryItems(
   filters: InventoryListFilters,
 ): Promise<ItemRecord[]> {
-  const units = await loadLocationUnits(filters.warehouseId);
+  const units = await loadLocationUnits(
+    filters.organizationId,
+    filters.warehouseId,
+  );
   const byId = new Map(units.map((unit) => [unit.id, unit]));
-  const and: Prisma.ItemWhereInput[] = [];
+  const and: Prisma.ItemWhereInput[] = [
+    { organizationId: filters.organizationId },
+  ];
 
   if (filters.warehouseId) {
-    and.push({ warehouseId: filters.warehouseId });
+    and.push({ stocks: { some: { warehouseId: filters.warehouseId } } });
   }
 
   if (filters.location === "none") {
-    and.push({ locationUnitId: null });
+    and.push({
+      stocks: {
+        some: stockLocationFilter(filters.warehouseId, { equals: null }),
+      },
+    });
   } else if (filters.location === "set") {
-    and.push({ locationUnitId: { not: null } });
+    and.push({
+      stocks: {
+        some: stockLocationFilter(filters.warehouseId, { not: null }),
+      },
+    });
   }
 
   if (filters.categoryId) {
@@ -905,7 +1077,11 @@ export async function listInventoryItems(
 
   if (filters.locationUnitId) {
     const scope = descendantLocationIds(filters.locationUnitId, units);
-    and.push({ locationUnitId: { in: scope } });
+    and.push({
+      stocks: {
+        some: stockLocationFilter(filters.warehouseId, { in: scope }),
+      },
+    });
   }
 
   if (filters.q) {
@@ -924,9 +1100,26 @@ export async function listInventoryItems(
     and.push({
       OR: [
         { name: { contains: filters.q, mode: "insensitive" } },
-        { warehouse: { name: { contains: filters.q, mode: "insensitive" } } },
+        {
+          stocks: {
+            some: {
+              ...(filters.warehouseId ? { warehouseId: filters.warehouseId } : {}),
+              warehouse: {
+                name: { contains: filters.q, mode: "insensitive" },
+              },
+            },
+          },
+        },
         ...(matchingLocationIds.length > 0
-          ? [{ locationUnitId: { in: matchingLocationIds } }]
+          ? [
+              {
+                stocks: {
+                  some: stockLocationFilter(filters.warehouseId, {
+                    in: matchingLocationIds,
+                  }),
+                },
+              },
+            ]
           : []),
       ],
     });
@@ -944,22 +1137,26 @@ export async function listInventoryItems(
   }
 
   return prisma.item.findMany({
-    where: and.length > 0 ? { AND: and } : {},
+    where: { AND: and },
     include: itemInclude,
     orderBy: { name: "asc" },
   });
 }
 
 export async function listWarehouseItems(
+  organizationId: string,
   warehouseId: string,
   filters: WarehouseItemListFilters,
 ): Promise<ItemRecord[]> {
-  return listInventoryItems({ ...filters, warehouseId });
+  return listInventoryItems({ ...filters, organizationId, warehouseId });
 }
 
-export async function getInventoryItem(itemId: string): Promise<ItemRecord> {
-  const item = await prisma.item.findUnique({
-    where: { id: itemId },
+export async function getInventoryItem(
+  organizationId: string,
+  itemId: string,
+): Promise<ItemRecord> {
+  const item = await prisma.item.findFirst({
+    where: { id: itemId, organizationId },
     include: itemInclude,
   });
   if (!item) {
@@ -969,11 +1166,12 @@ export async function getInventoryItem(itemId: string): Promise<ItemRecord> {
 }
 
 export async function getWarehouseItem(
+  organizationId: string,
   warehouseId: string,
   itemId: string,
 ): Promise<ItemRecord> {
-  const item = await getInventoryItem(itemId);
-  if (item.warehouseId !== warehouseId) {
+  const item = await getInventoryItem(organizationId, itemId);
+  if (!item.stocks.some((stock) => stock.warehouseId === warehouseId)) {
     throw new CatalogServiceError(
       "ITEM_NOT_FOUND",
       "Item not found in this warehouse",
@@ -985,13 +1183,14 @@ export async function getWarehouseItem(
 
 async function assertVerifiedUnattachedFiles(
   tx: Pick<typeof prisma, "file">,
+  organizationId: string,
   photoFileIds: string[],
 ) {
   if (photoFileIds.length === 0) {
     return;
   }
   const files = await tx.file.findMany({
-    where: { id: { in: photoFileIds } },
+    where: { id: { in: photoFileIds }, organizationId },
   });
   if (files.length !== photoFileIds.length) {
     throw new CatalogServiceError(
@@ -1028,6 +1227,7 @@ async function assertVerifiedUnattachedFiles(
 }
 
 export async function updateInventoryItem(
+  organizationId: string,
   itemId: string,
   input: CatalogUpdateInput,
 ): Promise<ItemRecord> {
@@ -1045,27 +1245,24 @@ export async function updateInventoryItem(
   }
 
   return prisma.$transaction(async (tx) => {
-    const existing = await tx.item.findUnique({
-      where: { id: itemId },
-      include: { files: { select: { sortOrder: true } } },
+    const existing = await tx.item.findFirst({
+      where: { id: itemId, organizationId },
+      include: {
+        files: { select: { sortOrder: true } },
+        stocks: { orderBy: { createdAt: "asc" } },
+      },
     });
     if (!existing) {
       throw new CatalogServiceError("ITEM_NOT_FOUND", "Item not found", 404);
     }
 
     const photoFileIds = input.photoFileIds ?? [];
-    await assertVerifiedUnattachedFiles(tx, photoFileIds);
+    await assertVerifiedUnattachedFiles(tx, organizationId, photoFileIds);
 
     await tx.item.update({
       where: { id: existing.id },
       data: {
         ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.quantityOwned !== undefined
-          ? {
-              quantityOwned: input.quantityOwned,
-              quantityAvailable: input.quantityOwned,
-            }
-          : {}),
         ...(input.categoryId !== undefined
           ? { categoryId: input.categoryId }
           : {}),
@@ -1089,6 +1286,17 @@ export async function updateInventoryItem(
         ...(input.notes !== undefined ? { notes: input.notes } : {}),
       },
     });
+
+    if (input.quantityOwned !== undefined && existing.stocks.length > 0) {
+      const primary = existing.stocks[0]!;
+      await tx.inventoryStock.update({
+        where: { id: primary.id },
+        data: {
+          quantityOwned: input.quantityOwned,
+          quantityAvailable: input.quantityOwned,
+        },
+      });
+    }
 
     if (photoFileIds.length > 0) {
       const nextSort =
@@ -1114,14 +1322,15 @@ export async function updateInventoryItem(
 }
 
 export async function unbindItemFromLocation(
+  organizationId: string,
   warehouseId: string,
   itemId: string,
 ): Promise<ItemRecord> {
-  const item = await prisma.item.findFirst({
-    where: { id: itemId, warehouseId },
+  const stock = await prisma.inventoryStock.findFirst({
+    where: { itemId, warehouseId, organizationId },
   });
 
-  if (!item) {
+  if (!stock) {
     throw new CatalogServiceError(
       "ITEM_NOT_FOUND",
       "Item not found in this warehouse",
@@ -1129,7 +1338,7 @@ export async function unbindItemFromLocation(
     );
   }
 
-  if (!item.locationUnitId) {
+  if (!stock.locationUnitId) {
     throw new CatalogServiceError(
       "ITEM_NOT_LOCATED",
       "Item is not attached to a location",
@@ -1137,9 +1346,10 @@ export async function unbindItemFromLocation(
     );
   }
 
-  return prisma.item.update({
-    where: { id: item.id },
+  await prisma.inventoryStock.update({
+    where: { id: stock.id },
     data: { locationUnitId: null },
-    include: itemInclude,
   });
+
+  return getWarehouseItem(organizationId, warehouseId, itemId);
 }

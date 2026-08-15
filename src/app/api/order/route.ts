@@ -22,7 +22,7 @@ export async function GET(request: Request) {
 
   try {
     const statusCodes = parseStatusFilter(new URL(request.url).searchParams);
-    const orders = await listOrders(statusCodes);
+    const orders = await listOrders(auth.organizationId, statusCodes);
     return NextResponse.json({ orders });
   } catch (error) {
     return toOrderErrorResponse(error);
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
 
   try {
     const input = parseOrderCreateInput(parsed.value);
-    const order = await createOrder(input, auth.user.id);
+    const order = await createOrder(input, auth.user.id, auth.organizationId);
     return NextResponse.json({ order }, { status: 201 });
   } catch (error) {
     return toOrderErrorResponse(error);

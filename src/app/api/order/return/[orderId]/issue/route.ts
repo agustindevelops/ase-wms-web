@@ -30,7 +30,12 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const { orderId } = await context.params;
     const input = parseIssueBody(parsed.value);
-    const order = await reportReturnIssue(orderId, auth.user.id, input);
+    const order = await reportReturnIssue(
+      auth.organizationId,
+      orderId,
+      auth.user.id,
+      input,
+    );
     return NextResponse.json({ order }, { status: 201 });
   } catch (error) {
     return toOrderErrorResponse(error);

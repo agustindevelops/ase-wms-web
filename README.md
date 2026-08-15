@@ -83,7 +83,7 @@ See [`.env.template`](./.env.template). You need:
 import {
   isAuthFailure,
   requireFirebaseUser, // token only — no Prisma
-  requirePrismaUser,   // token first, then User + warehouse membership
+  requirePrismaUser,   // token first, then User + organization membership
 } from "@/lib/auth/requireAuth";
 import { prisma } from "@/lib/db/prisma";
 
@@ -93,11 +93,11 @@ export async function GET(request: Request) {
 
   // Only after verify:
   const rows = await prisma.$queryRaw`SELECT 1`;
-  // Or: const { user, warehouse, role } = await requirePrismaUser(request);
+  // Or: const { user, organization, role } = await requirePrismaUser(request);
 }
 ```
 
-`requirePrismaUser` is the first-login path: after Bearer verification it upserts the Prisma `User`, creates the hardcoded default warehouse (barebones address) if it does not exist, and associates the user as `ADMIN` via `WarehouseMembership`. Authorization is warehouse-scoped, not a global user role.
+`requirePrismaUser` loads the Prisma `User` and `OrganizationMembership` after Bearer verification. `organizationId` comes from the verified Firebase custom claim (stamped from membership). Authorization is organization-scoped. Warehouse routes additionally require that the path warehouse belongs to that organization.
 
 Client helpers: `wmsFetch("/api/…", { idToken })` (same origin) or `aseApiFetch` for a remote API base URL.
 
@@ -106,7 +106,7 @@ Client helpers: `wmsFetch("/api/…", { idToken })` (same origin) or `aseApiFetc
 | Route | Behavior |
 | --- | --- |
 | `GET /api/health` | Bearer required → `SELECT 1` |
-| `GET /api/me` | Bearer required → upsert `User`, default warehouse, ADMIN membership |
+| `GET /api/me` | Bearer required → user, organization, role, warehouses |
 | `POST /api/img/upload` | Bearer → create `File` + presigned PUT (`{userId}/inventory/{fileId}`) |
 | `POST /api/img/verify` | Bearer → HEAD/magic checks → `uploaded` + File row (fail deletes object+row) |
 | `GET /api/test/img?file_id=` | Bearer → owner-scoped File + signed/public read URL |

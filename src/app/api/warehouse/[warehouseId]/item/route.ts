@@ -24,18 +24,25 @@ export async function GET(
     const { warehouseId } = await context.params;
     const filters = parseWarehouseItemListFilters(new URL(request.url).searchParams);
 
-    const result = await withWarehouseAdminRead(request, warehouseId, async () => {
-      const [items, locations] = await Promise.all([
-        listWarehouseItems(warehouseId, filters),
-        listWarehouseLocationPaths(warehouseId),
-      ]);
-      return { items, locations };
-    });
+    const result = await withWarehouseAdminRead(
+      request,
+      warehouseId,
+      async (organizationId) => {
+        const [items, locations] = await Promise.all([
+          listWarehouseItems(organizationId, warehouseId, filters),
+          listWarehouseLocationPaths(organizationId, warehouseId),
+        ]);
+        return { items, locations };
+      },
+    );
     if (isAuthFailure(result)) {
       return result.response;
     }
 
-    const items = await withItemsReadUrls(result.data.items);
+    const items = await withItemsReadUrls(result.data.items, {
+      organizationId: result.organizationId,
+      warehouseId,
+    });
     return NextResponse.json({ items, locations: result.data.locations });
   } catch (error) {
     return toCatalogErrorResponse(error);

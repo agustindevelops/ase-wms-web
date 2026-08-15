@@ -39,10 +39,12 @@ export async function PUT(
   try {
     const item = await withItemReadUrls(
       await bindItemToLocationUnit(
+        auth.organizationId,
         auth.warehouseId,
         locationUnitId,
         itemId,
       ),
+      { organizationId: auth.organizationId, warehouseId: auth.warehouseId },
     );
     return NextResponse.json({ item });
   } catch (error) {

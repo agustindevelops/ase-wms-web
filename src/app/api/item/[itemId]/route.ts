@@ -25,7 +25,10 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const item = await withItemReadUrls(auth.item);
+    const item = await withItemReadUrls(auth.item, {
+      organizationId: auth.organizationId,
+      warehouseId: auth.warehouseId ?? undefined,
+    });
     return NextResponse.json({ item });
   } catch (error) {
     return toCatalogErrorResponse(error);
@@ -50,7 +53,11 @@ export async function PATCH(request: Request, context: RouteContext) {
   try {
     const input = parseCatalogUpdateInput(parsed.value);
     const item = await withItemReadUrls(
-      await updateInventoryItem(auth.item.id, input),
+      await updateInventoryItem(auth.organizationId, auth.item.id, input),
+      {
+        organizationId: auth.organizationId,
+        warehouseId: auth.warehouseId ?? undefined,
+      },
     );
     return NextResponse.json({ item });
   } catch (error) {

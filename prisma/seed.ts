@@ -1,10 +1,20 @@
 import { config } from "dotenv";
+import {
+  applicationDefault,
+  cert,
+  getApps,
+  initializeApp,
+} from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
 import {
   ADMIN_ROLE_CODE,
   ADMIN_ROLE_DESCRIPTION,
   ADMIN_ROLE_NAME,
+  ANIAH_ADMIN_EMAIL,
+  ANIAH_ORGANIZATION,
+  ANIAH_WAREHOUSE_NAME,
   ITEM_CATEGORIES,
   LOCATION_UNIT_TYPES,
   ORDER_STATUSES,
@@ -23,7 +33,42 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString }),
 });
 
+function getSeedFirebaseAuth() {
+  if (!getApps().length) {
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      initializeApp({
+        credential: applicationDefault(),
+        projectId:
+          process.env.FIREBASE_ADMIN_PROJECT_ID ??
+          process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      });
+    } else {
+      const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(
+        /\\n/g,
+        "\n",
+      );
+      if (
+        !process.env.FIREBASE_ADMIN_PROJECT_ID ||
+        !process.env.FIREBASE_ADMIN_CLIENT_EMAIL ||
+        !privateKey
+      ) {
+        throw new Error("Firebase Admin credentials are not set for seed.");
+      }
+      initializeApp({
+        credential: cert({
+          projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+          privateKey,
+        }),
+      });
+    }
+  }
+  return getAuth();
+}
+
 async function main() {
+  const firebaseAuth = getSeedFirebaseAuth();
+
   await prisma.role.upsert({
     where: { code: ADMIN_ROLE_CODE },
     create: {
@@ -68,6 +113,85 @@ async function main() {
       update: { name: status.name },
     });
   }
+
+  const firebaseUser = await firebaseAuth.getUserByEmail(ANIAH_ADMIN_EMAIL);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const adminRole = await tx.role.findUniqueOrThrow({
+      where: { code: ADMIN_ROLE_CODE },
+    });
+
+    const organization = await tx.organization.upsert({
+      where: { slug: ANIAH_ORGANIZATION.slug },
+      update: {
+        name: ANIAH_ORGANIZATION.name,
+        contactEmail: ANIAH_ORGANIZATION.contactEmail,
+        websiteUrl: ANIAH_ORGANIZATION.websiteUrl,
+      },
+      create: ANIAH_ORGANIZATION,
+    });
+
+    const user = await tx.user.upsert({
+      where: { email: ANIAH_ADMIN_EMAIL },
+      update: { firebaseUid: firebaseUser.uid },
+      create: {
+        email: ANIAH_ADMIN_EMAIL,
+        firebaseUid: firebaseUser.uid,
+      },
+    });
+
+    await tx.organizationMembership.upsert({
+      where: { userId: user.id },
+      update: {
+        organizationId: organization.id,
+        roleId: adminRole.id,
+      },
+      create: {
+        organizationId: organization.id,
+        userId: user.id,
+        roleId: adminRole.id,
+      },
+    });
+
+    let warehouse = await tx.warehouse.findFirst({
+      where: {
+        organizationId: organization.id,
+        name: ANIAH_WAREHOUSE_NAME,
+      },
+    });
+    if (!warehouse) {
+      const address = await tx.address.create({
+        data: { organizationId: organization.id },
+      });
+      warehouse = await tx.warehouse.create({
+        data: {
+          organizationId: organization.id,
+          name: ANIAH_WAREHOUSE_NAME,
+          addressId: address.id,
+        },
+      });
+    }
+
+    return {
+      organizationId: organization.id,
+      userId: user.id,
+      warehouseId: warehouse.id,
+    };
+  });
+
+  const latestFirebaseUser = await firebaseAuth.getUser(firebaseUser.uid);
+  const existing = { ...(latestFirebaseUser.customClaims ?? {}) };
+  delete existing.wms;
+  existing.organizationId = result.organizationId;
+  await firebaseAuth.setCustomUserClaims(firebaseUser.uid, existing);
+
+  console.log("Aniah Social Events initialized");
+  console.log({
+    organizationId: result.organizationId,
+    userId: result.userId,
+    warehouseId: result.warehouseId,
+    firebaseUid: firebaseUser.uid,
+  });
 }
 
 main()

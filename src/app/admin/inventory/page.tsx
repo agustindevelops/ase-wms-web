@@ -2,7 +2,10 @@
 
 import { useAuthContext } from "@/context/AuthContext";
 import { wmsFetch, wmsJson } from "@/lib/api/wmsFetch";
-import { ARCHIVED_DISPOSITION_CODES } from "@/lib/db/defaults";
+import {
+  ARCHIVED_DISPOSITION_CODES,
+  MANUAL_ARCHIVE_DISPOSITION_CODES,
+} from "@/lib/db/defaults";
 import { useItemCategories } from "@/lib/query/lookups";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -13,7 +16,7 @@ type LocationFilter = "all" | "set" | "none";
 type ArchivedFilter = "0" | "1" | "all";
 type LocationOption = { id: string; path: string; warehouseId: string };
 type WarehouseOption = { id: string; name: string };
-type ArchiveChoice = (typeof ARCHIVED_DISPOSITION_CODES)[number];
+type ArchiveChoice = (typeof MANUAL_ARCHIVE_DISPOSITION_CODES)[number];
 
 const archivedCodes = new Set<string>(ARCHIVED_DISPOSITION_CODES);
 
@@ -344,7 +347,7 @@ export default function InventoryPage() {
                             Archive {item.name}?
                           </p>
                           <div className="flex flex-wrap justify-end gap-2">
-                            {ARCHIVED_DISPOSITION_CODES.map((code: ArchiveChoice) => (
+                            {MANUAL_ARCHIVE_DISPOSITION_CODES.map((code: ArchiveChoice) => (
                               <button
                                 key={code}
                                 type="button"

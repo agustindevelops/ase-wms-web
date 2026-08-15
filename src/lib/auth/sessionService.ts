@@ -1,20 +1,21 @@
 import "server-only";
 
 import type {
+  Organization,
+  OrganizationMembership,
   Role,
   User,
   Warehouse,
-  WarehouseMembership,
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import type { WmsClaims } from "@/lib/auth/wmsClaims";
 
 export type ProvisionedSession = {
   user: User;
-  warehouse: Warehouse;
+  organization: Organization;
   role: Role;
-  membership: WarehouseMembership;
-  claims: WmsClaims;
+  membership: OrganizationMembership;
+  warehouses: Pick<Warehouse, "id" | "name">[];
+  organizationId: string;
 };
 
 export type SessionJson = {
@@ -25,14 +26,19 @@ export type SessionJson = {
     createdAt: Date;
     updatedAt: Date;
   };
-  warehouse: {
+  organization: {
     id: string;
     name: string;
+    slug: string;
   };
   role: {
     code: string;
     name: string;
   };
+  warehouses: {
+    id: string;
+    name: string;
+  }[];
 };
 
 export class SessionLookupError extends Error {
@@ -53,9 +59,8 @@ export async function getProvisionedSession(
   const user = await prisma.user.findUnique({
     where: { firebaseUid },
     include: {
-      memberships: {
-        include: { warehouse: true, role: true },
-        orderBy: { createdAt: "asc" },
+      membership: {
+        include: { organization: true, role: true },
       },
     },
   });
@@ -68,33 +73,36 @@ export async function getProvisionedSession(
     );
   }
 
-  const membership = user.memberships[0];
+  const membership = user.membership;
   if (!membership) {
     throw new SessionLookupError(
       "NO_MEMBERSHIP",
-      "No warehouse membership for this user",
+      "No organization membership for this user",
       403,
     );
   }
 
-  const claims: WmsClaims = {};
-  for (const row of user.memberships) {
-    claims[row.warehouseId] = row.role.code;
-  }
+  const warehouses = await prisma.warehouse.findMany({
+    where: { organizationId: membership.organizationId },
+    select: { id: true, name: true },
+    orderBy: { createdAt: "asc" },
+  });
 
   return {
     user,
-    warehouse: membership.warehouse,
+    organization: membership.organization,
     role: membership.role,
     membership,
-    claims,
+    warehouses,
+    organizationId: membership.organizationId,
   };
 }
 
 export function toSessionJson(session: {
   user: User;
-  warehouse: Warehouse;
+  organization: Organization;
   role: Role;
+  warehouses: Pick<Warehouse, "id" | "name">[];
 }): SessionJson {
   return {
     user: {
@@ -104,13 +112,18 @@ export function toSessionJson(session: {
       createdAt: session.user.createdAt,
       updatedAt: session.user.updatedAt,
     },
-    warehouse: {
-      id: session.warehouse.id,
-      name: session.warehouse.name,
+    organization: {
+      id: session.organization.id,
+      name: session.organization.name,
+      slug: session.organization.slug,
     },
     role: {
       code: session.role.code,
       name: session.role.name,
     },
+    warehouses: session.warehouses.map((warehouse) => ({
+      id: warehouse.id,
+      name: warehouse.name,
+    })),
   };
 }

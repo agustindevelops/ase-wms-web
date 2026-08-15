@@ -14,13 +14,13 @@ import {
 
 export type AuthContextValue = {
   user: User | null;
-  /** First warehouse on the ID token `wms` claim. Stamped at login. */
-  warehouseId: string | null;
+  /** Organization id from the verified ID token custom claim. */
+  organizationId: string | null;
 };
 
 export const AuthContext = createContext<AuthContextValue>({
   user: null,
-  warehouseId: null,
+  organizationId: null,
 });
 
 export const useAuthContext = () => useContext(AuthContext);
@@ -29,19 +29,16 @@ interface AuthContextProviderProps {
   children: ReactNode;
 }
 
-function warehouseIdFromClaims(claims: Record<string, unknown>): string | null {
-  const raw = claims.wms;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-
-  const id = Object.keys(raw as Record<string, string>)[0];
-  return id || null;
+function organizationIdFromClaims(
+  claims: Record<string, unknown>,
+): string | null {
+  const raw = claims.organizationId;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
 }
 
 export function AuthContextProvider({ children }: AuthContextProviderProps) {
   const [user, setUser] = useState<User | null>(null);
-  const [warehouseId, setWarehouseId] = useState<string | null>(null);
+  const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -54,18 +51,18 @@ export function AuthContextProvider({ children }: AuthContextProviderProps) {
       void (async () => {
         if (!nextUser) {
           setUser(null);
-          setWarehouseId(null);
+          setOrganizationId(null);
           setLoading(false);
           return;
         }
 
         try {
           const { claims } = await nextUser.getIdTokenResult();
-          setWarehouseId(
-            warehouseIdFromClaims(claims as Record<string, unknown>),
+          setOrganizationId(
+            organizationIdFromClaims(claims as Record<string, unknown>),
           );
         } catch {
-          setWarehouseId(null);
+          setOrganizationId(null);
         } finally {
           setUser((prev) => (prev?.uid === nextUser.uid ? prev : nextUser));
           setLoading(false);
@@ -77,8 +74,8 @@ export function AuthContextProvider({ children }: AuthContextProviderProps) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, warehouseId }),
-    [user, warehouseId],
+    () => ({ user, organizationId }),
+    [user, organizationId],
   );
 
   if (loading) {
