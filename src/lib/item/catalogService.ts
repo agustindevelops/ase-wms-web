@@ -1185,9 +1185,10 @@ async function assertVerifiedUnattachedFiles(
   tx: Pick<typeof prisma, "file">,
   organizationId: string,
   photoFileIds: string[],
+  allowAttachedToItemId?: string,
 ) {
   if (photoFileIds.length === 0) {
-    return;
+    return [];
   }
   const files = await tx.file.findMany({
     where: { id: { in: photoFileIds }, organizationId },
@@ -1216,7 +1217,7 @@ async function assertVerifiedUnattachedFiles(
         400,
       );
     }
-    if (file.itemId) {
+    if (file.itemId && file.itemId !== allowAttachedToItemId) {
       throw new CatalogServiceError(
         "FILE_ALREADY_ATTACHED",
         "Photo file is already attached to an item",
@@ -1224,6 +1225,7 @@ async function assertVerifiedUnattachedFiles(
       );
     }
   }
+  return files;
 }
 
 export async function updateInventoryItem(
@@ -1257,7 +1259,12 @@ export async function updateInventoryItem(
     }
 
     const photoFileIds = input.photoFileIds ?? [];
-    await assertVerifiedUnattachedFiles(tx, organizationId, photoFileIds);
+    const photoFiles = await assertVerifiedUnattachedFiles(
+      tx,
+      organizationId,
+      photoFileIds,
+      existing.id,
+    );
 
     await tx.item.update({
       where: { id: existing.id },
@@ -1298,14 +1305,18 @@ export async function updateInventoryItem(
       });
     }
 
-    if (photoFileIds.length > 0) {
+    const newPhotoFileIds = photoFileIds.filter((fileId) => {
+      const file = photoFiles.find((row) => row.id === fileId);
+      return file != null && file.itemId !== existing.id;
+    });
+    if (newPhotoFileIds.length > 0) {
       const nextSort =
         existing.files.reduce(
           (max, file) => Math.max(max, file.sortOrder),
           -1,
         ) + 1;
       await Promise.all(
-        photoFileIds.map((fileId, index) =>
+        newPhotoFileIds.map((fileId, index) =>
           tx.file.update({
             where: { id: fileId },
             data: { itemId: existing.id, sortOrder: nextSort + index },
