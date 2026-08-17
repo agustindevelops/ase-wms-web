@@ -11,6 +11,12 @@ export default async function signIn(email: string, password: string) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email.trim(), password }),
     });
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      throw new Error(
+        "Could not sign in. The login service is unavailable. Try again in a moment.",
+      );
+    }
     const payload = (await response.json()) as {
       customToken?: string;
       message?: string;

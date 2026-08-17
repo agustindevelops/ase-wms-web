@@ -2,32 +2,18 @@ import "server-only";
 
 import {
   App,
-  applicationDefault,
   cert,
   getApps,
   initializeApp,
+  type ServiceAccount,
 } from "firebase-admin/app";
 import { Auth, getAuth } from "firebase-admin/auth";
 
 let app: App | undefined;
 
-function requireAdminEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(
-      `${name} is not set. Copy .env.template to .env.local and add Firebase Admin credentials.`,
-    );
-  }
-  return value;
-}
-
 /**
- * Firebase Admin app for verifying ID tokens from ase-wms-web and ase-wms-app.
- * Server-only — never expose FIREBASE_ADMIN_* to the client.
- *
- * Prefer either:
- * - GOOGLE_APPLICATION_CREDENTIALS=./secrets/firebase-admin.json
- * - or FIREBASE_ADMIN_PROJECT_ID + CLIENT_EMAIL + PRIVATE_KEY
+ * Server-only Firebase Admin app. Reads the service-account JSON from env and
+ * passes it to cert(). Never prefix FIREBASE_ADMIN_* with NEXT_PUBLIC_.
  */
 export function getFirebaseAdminApp(): App {
   if (app) {
@@ -40,29 +26,15 @@ export function getFirebaseAdminApp(): App {
     return app;
   }
 
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    app = initializeApp({
-      credential: applicationDefault(),
-      projectId:
-        process.env.FIREBASE_ADMIN_PROJECT_ID ??
-        process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    });
-    return app;
+  const credentialsJson = process.env.FIREBASE_ADMIN_CREDENTIALS_JSON;
+  if (!credentialsJson) {
+    throw new Error("FIREBASE_ADMIN_CREDENTIALS_JSON is not configured");
   }
 
-  const privateKey = requireAdminEnv("FIREBASE_ADMIN_PRIVATE_KEY").replace(
-    /\\n/g,
-    "\n",
-  );
-
+  const serviceAccount = JSON.parse(credentialsJson) as ServiceAccount;
   app = initializeApp({
-    credential: cert({
-      projectId: requireAdminEnv("FIREBASE_ADMIN_PROJECT_ID"),
-      clientEmail: requireAdminEnv("FIREBASE_ADMIN_CLIENT_EMAIL"),
-      privateKey,
-    }),
+    credential: cert(serviceAccount),
   });
-
   return app;
 }
 

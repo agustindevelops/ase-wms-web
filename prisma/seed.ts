@@ -1,10 +1,5 @@
 import { config } from "dotenv";
-import {
-  applicationDefault,
-  cert,
-  getApps,
-  initializeApp,
-} from "firebase-admin/app";
+import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
@@ -35,33 +30,13 @@ const prisma = new PrismaClient({
 
 function getSeedFirebaseAuth() {
   if (!getApps().length) {
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      initializeApp({
-        credential: applicationDefault(),
-        projectId:
-          process.env.FIREBASE_ADMIN_PROJECT_ID ??
-          process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      });
-    } else {
-      const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(
-        /\\n/g,
-        "\n",
-      );
-      if (
-        !process.env.FIREBASE_ADMIN_PROJECT_ID ||
-        !process.env.FIREBASE_ADMIN_CLIENT_EMAIL ||
-        !privateKey
-      ) {
-        throw new Error("Firebase Admin credentials are not set for seed.");
-      }
-      initializeApp({
-        credential: cert({
-          projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-          privateKey,
-        }),
-      });
+    const credentialsJson = process.env.FIREBASE_ADMIN_CREDENTIALS_JSON;
+    if (!credentialsJson) {
+      throw new Error("FIREBASE_ADMIN_CREDENTIALS_JSON is not configured");
     }
+    initializeApp({
+      credential: cert(JSON.parse(credentialsJson)),
+    });
   }
   return getAuth();
 }

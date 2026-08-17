@@ -102,6 +102,3 @@ database-debug.log
 # local scratch / exports
 /tmp
 *.local
-
-/src/generated/prisma
-.env*
