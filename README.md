@@ -99,7 +99,7 @@ export async function GET(request: Request) {
 
 `requirePrismaUser` loads the Prisma `User` and `OrganizationMembership` after Bearer verification. `organizationId` comes from the verified Firebase custom claim (stamped from membership). Authorization is organization-scoped. Warehouse routes additionally require that the path warehouse belongs to that organization.
 
-Client helpers: `wmsFetch("/api/…", { idToken })` (same origin) or `aseApiFetch` for a remote API base URL.
+Client helpers: `wmsFetch("/api/…")` and `aseApiFetch("/api/…")` hit same-origin `/api/*`.
 
 ### Smoke endpoints
 
@@ -160,7 +160,7 @@ src/
   firebase/      # client Auth + Firestore helpers
   lib/auth/      # Firebase Admin verify + requirePrismaUser
   lib/db/        # Prisma singleton, first-login warehouse bootstrap
-  lib/api/       # wmsFetch / aseApiFetch (Bearer ID token)
+  lib/api/       # wmsFetch / aseApiFetch (same-origin /api, Bearer ID token)
   generated/     # Prisma client (gitignored; generated on install)
 public/
   images/        # ASE logos + floral background

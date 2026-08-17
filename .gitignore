@@ -104,3 +104,4 @@ database-debug.log
 *.local
 
 /src/generated/prisma
+.env*
