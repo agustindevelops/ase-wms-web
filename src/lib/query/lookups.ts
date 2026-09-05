@@ -2,7 +2,7 @@
 
 import type { CategoryOption, LookupOption } from "@/app/admin/inventory/inventoryTypes";
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsJson } from "@/lib/api/wmsFetch";
+import { wisJson } from "@/lib/api/wisFetch";
 import { useQuery, type QueryClient } from "@tanstack/react-query";
 
 export type OrderStatusOption = { id: string; code: string; name: string };
@@ -22,35 +22,35 @@ const cachedLookup = {
 } as const;
 
 export async function fetchItemCategories() {
-  const json = await wmsJson<{ categories: CategoryOption[] }>(
+  const json = await wisJson<{ categories: CategoryOption[] }>(
     "/api/lookup/item-categories",
   );
   return json.categories;
 }
 
 export async function fetchMaterials() {
-  const json = await wmsJson<{ materials: LookupOption[] }>(
+  const json = await wisJson<{ materials: LookupOption[] }>(
     "/api/lookup/materials",
   );
   return json.materials;
 }
 
 export async function fetchItemConditions() {
-  const json = await wmsJson<{ conditions: LookupOption[] }>(
+  const json = await wisJson<{ conditions: LookupOption[] }>(
     "/api/lookup/item-conditions",
   );
   return json.conditions;
 }
 
 export async function fetchItemDispositions() {
-  const json = await wmsJson<{ dispositions: LookupOption[] }>(
+  const json = await wisJson<{ dispositions: LookupOption[] }>(
     "/api/lookup/item-dispositions",
   );
   return json.dispositions;
 }
 
 export async function fetchOrderStatuses() {
-  const json = await wmsJson<{ statuses: OrderStatusOption[] }>(
+  const json = await wisJson<{ statuses: OrderStatusOption[] }>(
     "/api/lookup/order-statuses",
   );
   return json.statuses;

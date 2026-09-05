@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure, requireAdmin } from "@/lib/auth/requireAuth";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import { readJsonObject, toOrderErrorResponse } from "@/lib/order/errors";
 import {
   parseIssueBody,
@@ -36,6 +41,17 @@ export async function POST(request: Request, context: RouteContext) {
       auth.user.id,
       input,
     );
+    const itemName =
+      order.lines.find((line) => line.itemId === input.itemId)?.item.name ??
+      "item";
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ISSUE_REPORTED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.ISSUE,
+      entityId: orderId,
+      summary: `Reported ${input.type} on "${itemName}" for order "${order.name}" (qty ${input.quantity})`,
+    });
     return NextResponse.json({ order }, { status: 201 });
   } catch (error) {
     return toOrderErrorResponse(error);

@@ -1,12 +1,12 @@
-# ASE WMS Web
+# ASE WIS Web
 
-Web dashboard for the **Aniah Social Events Warehouse Management System (ASE WMS)** — the computer-side half of a two-interface inventory system.
+Web dashboard for the **Aniah Social Events Warehouse Inventory System (ASE WIS)** — the computer-side half of a two-interface inventory system.
 
-**Scope:** [Project Scope Statement - ASE WMS](https://agustindevelops.atlassian.net/wiki/spaces/ASE/pages/161775617/Project+Scope+Statement+-+ASE+WMS)
+**Scope:** [Project Scope Statement - ASE WIS](https://agustindevelops.atlassian.net/wiki/spaces/ASE/pages/161775617/Project+Scope+Statement+-+ASE+WMS)
 
 ## Purpose
 
-ASE WMS gives Aniah Social Events a single place to track what inventory the business owns, how many units are available, where each item is stored, what is assigned to upcoming events, and what was picked up or returned (including shortages and damage).
+ASE WIS gives Aniah Social Events a single place to track what inventory the business owns, how many units are available, where each item is stored, what is assigned to upcoming events, and what was picked up or returned (including shortages and damage).
 
 This repo (`ase-wms-web`) is the **web dashboard**: detailed inventory administration, search/filter, and completing item records that are awkward to edit on a phone. It shares the same inventory data as the mobile warehouse app (`ase-wms-app`), which is optimized for on-site cataloging, pulling, and returning.
 
@@ -99,7 +99,7 @@ export async function GET(request: Request) {
 
 `requirePrismaUser` loads the Prisma `User` and `OrganizationMembership` after Bearer verification. `organizationId` comes from the verified Firebase custom claim (stamped from membership). Authorization is organization-scoped. Warehouse routes additionally require that the path warehouse belongs to that organization.
 
-Client helpers: `wmsFetch("/api/…")` and `aseApiFetch("/api/…")` hit same-origin `/api/*`.
+Client helpers: `wisFetch("/api/…")` and `aseApiFetch("/api/…")` hit same-origin `/api/*`.
 
 ### Smoke endpoints
 
@@ -160,7 +160,7 @@ src/
   firebase/      # client Auth + Firestore helpers
   lib/auth/      # Firebase Admin verify + requirePrismaUser
   lib/db/        # Prisma singleton, first-login warehouse bootstrap
-  lib/api/       # wmsFetch / aseApiFetch (same-origin /api, Bearer ID token)
+  lib/api/       # wisFetch / aseApiFetch (same-origin /api, Bearer ID token)
   generated/     # Prisma client (gitignored; generated on install)
 public/
   images/        # ASE logos + floral background

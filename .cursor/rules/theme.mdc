@@ -1,0 +1,30 @@
+---
+description: Brand color usage for titles, labels, errors, and attention actions
+globs: **/*.{tsx,ts,css}
+alwaysApply: true
+---
+
+# Color usage
+
+- **Coral `#CE6B69`** (`text-coral`): titles, headings, brand display type (`font-nickainley`).
+- **Peach `#FF785E`** (`text-peach-500` / `text-peach-700`, `bg-peach-500`): attention only.
+- **Brown** (`text-brown-800`, `text-brown-500`): form labels, body, helper text. Never peach on labels.
+- **Green** (`bg-green-500`, `bg-green-700`): primary / complete actions.
+
+## Peach is allowed only for
+
+- Errors and alerts (`role="alert"`, `text-peach-700`)
+- Report issue
+- Sign out
+- Connect printer / not-yet-set-up states
+- Destructive existing-item actions (archive, remove)
+
+```tsx
+// ❌ BAD — title in peach
+<h1 className="font-nickainley text-peach-500">WIS Admin</h1>
+
+// ✅ GOOD
+<h1 className="font-nickainley text-coral">WIS Admin</h1>
+<p className="text-sm text-peach-700" role="alert">{error}</p>
+<button className="bg-peach-500 text-white">Sign out</button>
+```

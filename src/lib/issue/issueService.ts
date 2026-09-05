@@ -3,6 +3,7 @@ import "server-only";
 import { ISSUE_TYPES, isArchivedDisposition, type IssueType } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
 import { CatalogServiceError } from "@/lib/item/errors";
+import { getReadUrl } from "@/lib/storage/s3";
 
 export type CreateItemIssueInput = {
   type: IssueType;
@@ -33,6 +34,125 @@ function asPositiveQty(value: unknown, field: string): number {
     );
   }
   return qty;
+}
+
+export type IssueListItem = {
+  id: string;
+  type: IssueType;
+  quantity: number;
+  notes: string | null;
+  createdAt: Date;
+  item: {
+    id: string;
+    name: string;
+    files: Array<{ id: string; readUrl: string | null }>;
+  };
+  createdBy: { id: string; email: string };
+  order: { id: string; name: string } | null;
+};
+
+async function fileReadUrl(file: {
+  publicUrl: string | null;
+  status: string;
+  s3Key: string;
+}): Promise<string | null> {
+  if (file.publicUrl) {
+    return file.publicUrl;
+  }
+  if (file.status !== "uploaded") {
+    return null;
+  }
+  try {
+    return await getReadUrl(file.s3Key);
+  } catch {
+    return null;
+  }
+}
+
+export function parseIssueTypeFilter(params: URLSearchParams): IssueType[] {
+  const raw = params.getAll("type").flatMap((value) => value.split(","));
+  const types: IssueType[] = [];
+  for (const value of raw) {
+    const type = value.trim().toUpperCase();
+    if (!type) {
+      continue;
+    }
+    if (!ISSUE_TYPES.includes(type as IssueType)) {
+      throw new CatalogServiceError(
+        "Bad Request",
+        "type must be MISSING or BROKEN",
+      );
+    }
+    if (!types.includes(type as IssueType)) {
+      types.push(type as IssueType);
+    }
+  }
+  return types;
+}
+
+export async function listIssues(
+  organizationId: string,
+  types: IssueType[] = [],
+): Promise<IssueListItem[]> {
+  const rows = await prisma.issue.findMany({
+    where: {
+      organizationId,
+      ...(types.length > 0 ? { type: { in: types } } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      type: true,
+      quantity: true,
+      notes: true,
+      createdAt: true,
+      item: {
+        select: {
+          id: true,
+          name: true,
+          files: {
+            where: { status: "uploaded" },
+            orderBy: { sortOrder: "asc" },
+            take: 1,
+            select: {
+              id: true,
+              publicUrl: true,
+              status: true,
+              s3Key: true,
+            },
+          },
+        },
+      },
+      createdBy: { select: { id: true, email: true } },
+      orderLine: {
+        select: {
+          order: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
+
+  return Promise.all(
+    rows.map(async (row) => ({
+      id: row.id,
+      type: row.type as IssueType,
+      quantity: row.quantity,
+      notes: row.notes,
+      createdAt: row.createdAt,
+      item: {
+        id: row.item.id,
+        name: row.item.name,
+        files: await Promise.all(
+          row.item.files.map(async (file) => ({
+            id: file.id,
+            readUrl: await fileReadUrl(file),
+          })),
+        ),
+      },
+      createdBy: row.createdBy,
+      order: row.orderLine?.order ?? null,
+    })),
+  );
 }
 
 export function parseCreateIssueBody(
@@ -103,7 +223,8 @@ async function decrementStockField(
 
 /**
  * Standalone MISSING/BROKEN against an item (no order line).
- * Reduces owned and available; never restores stock.
+ * Caps against total owned inventory. Available is reduced only as far as
+ * it exists so items out on events can still be written off.
  */
 export async function createItemIssue(
   organizationId: string,
@@ -153,12 +274,6 @@ export async function createItemIssue(
         `Only ${quantityOwned} owned`,
       );
     }
-    if (input.quantity > quantityAvailable) {
-      throw new CatalogServiceError(
-        "INSUFFICIENT_AVAILABLE",
-        `Only ${quantityAvailable} available`,
-      );
-    }
 
     const issue = await tx.issue.create({
       data: {
@@ -186,12 +301,15 @@ export async function createItemIssue(
       input.quantity,
       "quantityOwned",
     );
-    await decrementStockField(
-      tx,
-      item.stocks.map((stock) => ({ ...stock })),
-      input.quantity,
-      "quantityAvailable",
-    );
+    const availableToRemove = Math.min(input.quantity, quantityAvailable);
+    if (availableToRemove > 0) {
+      await decrementStockField(
+        tx,
+        item.stocks.map((stock) => ({ ...stock })),
+        availableToRemove,
+        "quantityAvailable",
+      );
+    }
 
     const nextOwned = quantityOwned - input.quantity;
     if (nextOwned <= 0) {

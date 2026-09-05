@@ -334,5 +334,5 @@ export async function deleteLocationUnit(
     await tx.locationUnit.delete({ where: { id } });
   });
 
-  return { id, deleted: true };
+  return { id, name: existing.name, deleted: true };
 }

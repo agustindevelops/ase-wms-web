@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import { requireWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import {
   readJsonObject,
   toWarehouseErrorResponse,
@@ -40,6 +45,14 @@ export async function POST(
       auth.warehouseId,
       input,
     );
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.LOCATION_QR_ATTACHED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.QR_CODE,
+      entityId: result.qrCode.id,
+      summary: `Attached QR to location unit "${result.locationUnit.name}"`,
+    });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     return toWarehouseErrorResponse(error);

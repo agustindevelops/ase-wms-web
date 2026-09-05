@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import {
   isAuthFailure,
   requirePrismaUser,
 } from "@/lib/auth/requireAuth";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
+import { prisma } from "@/lib/db/prisma";
 import {
   FileServiceError,
   verifyFileUpload,
@@ -50,6 +56,29 @@ export async function POST(request: Request) {
       userId: auth.user.id,
       organizationId: auth.organizationId,
       fileId,
+    });
+
+    let summary = "Uploaded a photo";
+    if (result.file.itemId) {
+      const item = await prisma.item.findFirst({
+        where: {
+          id: result.file.itemId,
+          organizationId: auth.organizationId,
+        },
+        select: { name: true },
+      });
+      summary = item
+        ? `Uploaded a photo for "${item.name}"`
+        : "Uploaded a photo";
+    }
+
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.FILE_UPLOADED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.FILE,
+      entityId: result.file.id,
+      summary,
     });
 
     return NextResponse.json({

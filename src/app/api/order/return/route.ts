@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 /**
  * GET /api/order/return
- * Return-eligible orders with lines and return status. Warehouse-agnostic.
+ * Orders scheduled for today (America/Chicago), with lines and return status.
  */
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);

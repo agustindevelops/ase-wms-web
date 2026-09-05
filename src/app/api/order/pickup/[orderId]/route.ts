@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure, requireAdmin } from "@/lib/auth/requireAuth";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import { readJsonObject, toOrderErrorResponse } from "@/lib/order/errors";
 import {
   getPickupOrder,
@@ -57,6 +62,17 @@ export async function POST(request: Request, context: RouteContext) {
       input.qty,
       input.warehouseId,
     );
+    const itemName =
+      order.lines.find((line) => line.itemId === input.itemId)?.item.name ??
+      "item";
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ORDER_PICKED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.EVENT_ORDER,
+      entityId: order.id,
+      summary: `Picked ${input.qty} of "${itemName}" for order "${order.name}"`,
+    });
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);

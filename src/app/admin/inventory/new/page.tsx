@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsFetch, wmsJson } from "@/lib/api/wmsFetch";
+import { wisFetch, wisJson } from "@/lib/api/wisFetch";
 import { useInventoryLookups } from "@/lib/query/lookups";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -32,7 +32,7 @@ export default function NewInventoryPage() {
   const warehousesQuery = useQuery({
     queryKey: ["inventory", { archived: "0" }],
     queryFn: () =>
-      wmsJson<{ warehouses?: WarehouseOption[] }>("/api/item?archived=0"),
+      wisJson<{ warehouses?: WarehouseOption[] }>("/api/item?archived=0"),
     enabled: Boolean(userId),
   });
   const warehouses = warehousesQuery.data?.warehouses ?? [];
@@ -58,7 +58,7 @@ export default function NewInventoryPage() {
     setError(null);
     try {
       const payload = formToPayload(values);
-      const response = await wmsFetch("/api/item", {
+      const response = await wisFetch("/api/item", {
         method: "POST",
         body: JSON.stringify({
           warehouseId,

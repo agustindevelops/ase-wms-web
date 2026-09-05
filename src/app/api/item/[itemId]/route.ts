@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import { requireItemWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import {
   parseCatalogUpdateInput,
   updateInventoryItem,
@@ -59,6 +64,14 @@ export async function PATCH(request: Request, context: RouteContext) {
         warehouseId: auth.warehouseId ?? undefined,
       },
     );
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ITEM_UPDATED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.ITEM,
+      entityId: item.id,
+      summary: `Updated item "${item.name}"`,
+    });
     return NextResponse.json({ item });
   } catch (error) {
     return toCatalogErrorResponse(error);

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure, requireAdmin } from "@/lib/auth/requireAuth";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import {
   addOrUpdateOrderLine,
   parseOrderLineCreateInput,
@@ -35,6 +40,17 @@ export async function POST(request: Request, context: RouteContext) {
       orderId,
       input,
     );
+    const itemName =
+      order.lines.find((line) => line.itemId === input.itemId)?.item.name ??
+      "item";
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ORDER_LINE_ADDED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.EVENT_ORDER,
+      entityId: order.id,
+      summary: `Added "${itemName}" × ${input.qtyRequested} to order "${order.name}"`,
+    });
     return NextResponse.json({ order }, { status: 201 });
   } catch (error) {
     return toOrderErrorResponse(error);

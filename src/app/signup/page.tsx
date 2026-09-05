@@ -73,11 +73,11 @@ export default function SignUpPage() {
               priority
             />
           </Link>
-          <h1 className="font-nickainley mt-3 text-4xl text-peach-500">
+          <h1 className="font-nickainley mt-3 text-4xl text-coral">
             Create Account
           </h1>
           <p className="mt-2 text-sm text-brown-600">
-            Admin access for ASE WMS
+            Admin access for WIS
           </p>
         </div>
 

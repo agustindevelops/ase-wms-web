@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsJson } from "@/lib/api/wmsFetch";
+import { wisJson } from "@/lib/api/wisFetch";
 import {
   useOrderStatuses,
   type OrderStatusOption,
@@ -39,7 +39,7 @@ export default function OrdersPage() {
         params.append("status", code);
       }
       const query = params.toString();
-      return wmsJson<{ orders: OrderListItem[] }>(
+      return wisJson<{ orders: OrderListItem[] }>(
         query ? `/api/order?${query}` : "/api/order",
       );
     },

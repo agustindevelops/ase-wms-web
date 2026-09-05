@@ -1,6 +1,6 @@
 "use client";
 
-import { wmsFetch } from "@/lib/api/wmsFetch";
+import { wisFetch } from "@/lib/api/wisFetch";
 import { ChangeEvent, FormEvent, useState } from "react";
 import {
   fieldClass,
@@ -35,7 +35,7 @@ export async function uploadVerifiedPhoto(file: File): Promise<PendingPhoto> {
     throw new Error("Photo must be JPEG, PNG, or WebP");
   }
 
-  const signRes = await wmsFetch("/api/img/upload", {
+  const signRes = await wisFetch("/api/img/upload", {
     method: "POST",
     body: JSON.stringify({
       content_type: file.type,
@@ -56,7 +56,7 @@ export async function uploadVerifiedPhoto(file: File): Promise<PendingPhoto> {
     throw new Error(`Direct upload failed (${putRes.status})`);
   }
 
-  const verifyRes = await wmsFetch("/api/img/verify", {
+  const verifyRes = await wisFetch("/api/img/verify", {
     method: "POST",
     body: JSON.stringify({ file_id: signJson.file_id }),
   });

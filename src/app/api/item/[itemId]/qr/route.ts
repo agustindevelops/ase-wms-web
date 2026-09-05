@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import { requireItemWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import {
   createItemQrCode,
   deleteItemQrCode,
@@ -27,6 +32,14 @@ export async function POST(request: Request, context: RouteContext) {
 
   try {
     const result = await createItemQrCode(auth.organizationId, auth.item.id);
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ITEM_QR_ATTACHED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.ITEM,
+      entityId: auth.item.id,
+      summary: `Attached QR to item "${auth.item.name}"`,
+    });
     return NextResponse.json(
       {
         ...result,
@@ -55,6 +68,14 @@ export async function DELETE(request: Request, context: RouteContext) {
 
   try {
     const result = await deleteItemQrCode(auth.organizationId, auth.item.id);
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ITEM_QR_REMOVED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.ITEM,
+      entityId: auth.item.id,
+      summary: `Removed QR from item "${auth.item.name}"`,
+    });
     return NextResponse.json(result);
   } catch (error) {
     return toCatalogErrorResponse(error);

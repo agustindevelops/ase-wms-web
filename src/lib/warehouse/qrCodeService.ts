@@ -218,5 +218,5 @@ export async function deleteWarehouseQrCode(
     await tx.qrCode.delete({ where: { id: qrCodeId } });
   });
 
-  return { id: qrCodeId, deleted: true };
+  return { id: qrCodeId, locationName: unit.name, deleted: true };
 }

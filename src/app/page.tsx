@@ -40,16 +40,16 @@ export default function Home() {
         />
 
         <p className="animate-fade-up mt-4 text-sm font-medium tracking-[0.2em] text-brown-500 uppercase">
-          Warehouse Management
+          Warehouse Inventory System
         </p>
 
-        <h1 className="font-nickainley animate-fade-up-delay mt-3 text-4xl text-peach-500 sm:text-5xl">
-          ASE WMS Admin
+        <h1 className="font-nickainley animate-fade-up-delay mt-3 text-4xl text-coral sm:text-5xl">
+          WIS Admin
         </h1>
 
         <p className="animate-fade-up-delay mt-4 max-w-md text-base text-brown-600">
-          Sign in to manage inventory, labels, and day-to-day warehouse
-          operations for Aniah Social Events.
+          Sign in to manage inventory, event orders, and day-to-day warehouse
+          operations.
         </p>
 
         <div className="animate-fade-up-delay mt-10 flex w-full max-w-xs flex-col gap-3">

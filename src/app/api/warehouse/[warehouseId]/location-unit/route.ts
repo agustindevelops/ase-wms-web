@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import { requireWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import {
   readJsonObject,
   toWarehouseErrorResponse,
@@ -39,6 +44,14 @@ export async function POST(
       auth.warehouseId,
       input,
     );
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.LOCATION_UNIT_CREATED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.LOCATION_UNIT,
+      entityId: locationUnit.id,
+      summary: `Created location unit "${locationUnit.name}"`,
+    });
     return NextResponse.json({ locationUnit }, { status: 201 });
   } catch (error) {
     return toWarehouseErrorResponse(error);

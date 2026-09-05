@@ -37,6 +37,9 @@
   --color-green-800: #445239;
   --color-green-900: #333e2a;
 
+  --color-coral: #ce6b69;
+  --color-coral-hover: #b85a57;
+
   --font-nickainley: var(--font-nickainley), ui-serif, Georgia, serif;
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }

@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure, requireAdmin } from "@/lib/auth/requireAuth";
 import { requireWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import {
   createCatalogItem,
   listInventoryItems,
@@ -69,6 +74,14 @@ export async function POST(request: Request) {
       await createCatalogItem(auth.organizationId, input),
       { organizationId: auth.organizationId, warehouseId: input.warehouseId },
     );
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ITEM_CREATED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.ITEM,
+      entityId: item.id,
+      summary: `Created item "${item.name}"`,
+    });
     return NextResponse.json({ item }, { status: 201 });
   } catch (error) {
     return toCatalogErrorResponse(error);

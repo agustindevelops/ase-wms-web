@@ -67,11 +67,11 @@ export default function SignInPage() {
               priority
             />
           </Link>
-          <h1 className="font-nickainley mt-3 text-4xl text-peach-500">
+          <h1 className="font-nickainley mt-3 text-4xl text-coral">
             Sign In
           </h1>
           <p className="mt-2 text-sm text-brown-600">
-            ASE WMS Admin access
+            WIS Admin access
           </p>
         </div>
 

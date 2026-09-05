@@ -1,16 +1,16 @@
-# ERD - ASE WMS
+# ERD - ASE WIS
 
 **Status:** Draft for MVP Prisma implementation
 
 ## Links
 
-* [Project Scope Statement - ASE WMS](https://agustindevelops.atlassian.net/wiki/spaces/ASE/pages/161775617)
+* [Project Scope Statement - ASE WIS](https://agustindevelops.atlassian.net/wiki/spaces/ASE/pages/161775617)
 * [User journey (Whimsical)](https://whimsical.com/agustin-develops/ase-WJGRSQb6T9TboVZ199jczu)
-* Epic: [ASE-1 Warehouse Management Service](https://agustindevelops.atlassian.net/browse/ASE-1)
+* Epic: [ASE-1 Warehouse Inventory Service](https://agustindevelops.atlassian.net/browse/ASE-1)
 
 ## Purpose
 
-Relational data model for Aniah Social Events Warehouse Management System (mobile app + web admin). Identity is Firebase Auth; domain data is Prisma + SQL. Images use S3 with CloudFront via sign, PUT, verify.
+Relational data model for Aniah Social Events Warehouse Inventory System (mobile app + web admin). Identity is Firebase Auth; domain data is Prisma + SQL. Images use S3 with CloudFront via sign, PUT, verify.
 
 ## System context
 

@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import { requireWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import { resolveWarehouseQr } from "@/lib/item/catalogService";
 import { toCatalogErrorResponse } from "@/lib/item/errors";
 import { toWarehouseErrorResponse } from "@/lib/warehouse/errors";
@@ -68,6 +73,14 @@ export async function DELETE(
       auth.warehouseId,
       id,
     );
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.LOCATION_QR_REMOVED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.QR_CODE,
+      entityId: id,
+      summary: `Removed QR from location "${result.locationName}"`,
+    });
     return NextResponse.json(result);
   } catch (error) {
     return toWarehouseErrorResponse(error);

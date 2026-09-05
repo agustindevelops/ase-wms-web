@@ -17,9 +17,9 @@ const nickainley = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "ASE WMS Admin | Aniah Social Events",
+  title: "WIS Admin | Warehouse Inventory System",
   description:
-    "Warehouse management admin for Aniah Social Events inventory, labels, and operations.",
+    "Warehouse inventory admin for catalog, orders, and day-to-day operations.",
   icons: {
     icon: "/favicon.ico",
     apple: "/favicon/apple-touch-icon.png",

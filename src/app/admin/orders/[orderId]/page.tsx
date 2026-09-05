@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsFetch, wmsJson } from "@/lib/api/wmsFetch";
+import { wisFetch, wisJson } from "@/lib/api/wisFetch";
 import {
   useOrderStatuses,
   type OrderStatusOption,
@@ -124,13 +124,13 @@ export default function OrderDetailPage() {
 
   const orderQuery = useQuery({
     queryKey: ["order", orderId],
-    queryFn: () => wmsJson<{ order: OrderDetail }>(`/api/order/${orderId}`),
+    queryFn: () => wisJson<{ order: OrderDetail }>(`/api/order/${orderId}`),
     enabled: Boolean(userId && orderId),
   });
   const catalogQuery = useQuery({
     queryKey: ["inventory", { archived: "0" }],
     queryFn: () =>
-      wmsJson<{ items: CatalogItem[] }>("/api/item?archived=0"),
+      wisJson<{ items: CatalogItem[] }>("/api/item?archived=0"),
     enabled: Boolean(userId),
   });
 
@@ -149,7 +149,7 @@ export default function OrderDetailPage() {
   const loading = orderQuery.isLoading || catalogQuery.isLoading;
 
   const authedJson = async (path: string, init: RequestInit) => {
-    const response = await wmsFetch(path, init);
+    const response = await wisFetch(path, init);
     const json = await response.json();
     if (!response.ok) {
       throw new Error(json.message ?? "Request failed");

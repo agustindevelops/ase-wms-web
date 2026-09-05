@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure, requireAdmin } from "@/lib/auth/requireAuth";
 import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
+import {
   deleteOrderLine,
+  getOrder,
   parseOrderLineUpdate,
   updateOrderLine,
 } from "@/lib/order/orderService";
@@ -37,6 +43,16 @@ export async function PATCH(request: Request, context: RouteContext) {
       lineId,
       input,
     );
+    const itemName =
+      order.lines.find((line) => line.id === lineId)?.item.name ?? "item";
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ORDER_LINE_UPDATED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.EVENT_ORDER,
+      entityId: order.id,
+      summary: `Updated "${itemName}" on order "${order.name}" to qty ${input.qtyRequested}`,
+    });
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);
@@ -55,7 +71,18 @@ export async function DELETE(request: Request, context: RouteContext) {
 
   try {
     const { orderId, lineId } = await context.params;
+    const before = await getOrder(auth.organizationId, orderId);
+    const itemName =
+      before.lines.find((line) => line.id === lineId)?.item.name ?? "item";
     const order = await deleteOrderLine(auth.organizationId, orderId, lineId);
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ORDER_LINE_REMOVED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.EVENT_ORDER,
+      entityId: order.id,
+      summary: `Removed "${itemName}" from order "${before.name}"`,
+    });
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);

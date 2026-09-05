@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure, requireAdmin } from "@/lib/auth/requireAuth";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import {
   createOrder,
   listOrders,
@@ -47,6 +52,14 @@ export async function POST(request: Request) {
   try {
     const input = parseOrderCreateInput(parsed.value);
     const order = await createOrder(input, auth.user.id, auth.organizationId);
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ORDER_CREATED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.EVENT_ORDER,
+      entityId: order.id,
+      summary: `Created order "${order.name}"`,
+    });
     return NextResponse.json({ order }, { status: 201 });
   } catch (error) {
     return toOrderErrorResponse(error);

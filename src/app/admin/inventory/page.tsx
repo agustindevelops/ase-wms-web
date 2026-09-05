@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsFetch, wmsJson } from "@/lib/api/wmsFetch";
+import { wisFetch, wisJson } from "@/lib/api/wisFetch";
 import {
   ARCHIVED_DISPOSITION_CODES,
   MANUAL_ARCHIVE_DISPOSITION_CODES,
@@ -70,7 +70,7 @@ export default function InventoryPage() {
         params.set("locationUnitId", locationUnitId);
       }
       params.set("archived", archived);
-      return wmsJson<{
+      return wisJson<{
         items: InventoryItem[];
         locations?: LocationOption[];
         warehouses?: WarehouseOption[];
@@ -94,7 +94,7 @@ export default function InventoryPage() {
     setRowBusyId(item.id);
     setError(null);
     try {
-      const response = await wmsFetch(`/api/item/${item.id}`, {
+      const response = await wisFetch(`/api/item/${item.id}`, {
           method: "PATCH",
           body: JSON.stringify({ disposition }),
         },
@@ -117,7 +117,7 @@ export default function InventoryPage() {
   }
 
   return (
-    <section className="mx-auto max-w-6xl px-4 py-12">
+    <section className="mx-auto max-w-5xl px-4 py-12">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="font-nickainley text-3xl text-brown-800">Inventory</h2>

@@ -6,26 +6,19 @@ import {
   ORDER_STATUS_PAID,
   ORDER_STATUS_PICKED_UP,
   ORDER_STATUS_RETURNED,
-  PICKUP_ORDER_STATUS_CODES,
   QR_CODE_TYPE_ITEM,
   QR_CODE_TYPE_LOCATION,
-  RETURN_ORDER_STATUS_CODES,
   isIssueArchivedDisposition,
   type IssueType,
 } from "@/lib/db/defaults";
+import { chicagoDayBounds } from "@/lib/dashboard/dashboardService";
 import { prisma } from "@/lib/db/prisma";
 import { OrderServiceError } from "@/lib/order/errors";
-
-const pickupStatusCodes: string[] = [...PICKUP_ORDER_STATUS_CODES];
-const pickupViewStatusCodes: string[] = [
-  ...pickupStatusCodes,
-  ORDER_STATUS_PICKED_UP,
-];
-const returnStatusCodes: string[] = [...RETURN_ORDER_STATUS_CODES];
-const returnViewStatusCodes: string[] = [
-  ...returnStatusCodes,
-  ORDER_STATUS_RETURNED,
-];
+import {
+  canMutatePickup,
+  canMutateReturn,
+  canReportOrderIssue,
+} from "@/lib/order/orderStatus";
 
 const locationUnitNameSelect = {
   id: true,
@@ -320,17 +313,7 @@ async function loadFulfillmentOrder(
 }
 
 function assertPickupEligible(order: FulfillmentOrderRecord) {
-  if (!pickupStatusCodes.includes(order.status.code)) {
-    throw new OrderServiceError(
-      "ORDER_NOT_ELIGIBLE",
-      "Order is not eligible for pickup",
-      409,
-    );
-  }
-}
-
-function assertPickupViewable(order: FulfillmentOrderRecord) {
-  if (!pickupViewStatusCodes.includes(order.status.code)) {
+  if (!canMutatePickup(order)) {
     throw new OrderServiceError(
       "ORDER_NOT_ELIGIBLE",
       "Order is not eligible for pickup",
@@ -340,17 +323,7 @@ function assertPickupViewable(order: FulfillmentOrderRecord) {
 }
 
 function assertReturnEligible(order: FulfillmentOrderRecord) {
-  if (!returnStatusCodes.includes(order.status.code)) {
-    throw new OrderServiceError(
-      "ORDER_NOT_ELIGIBLE",
-      "Order is not eligible for return",
-      409,
-    );
-  }
-}
-
-function assertReturnViewable(order: FulfillmentOrderRecord) {
-  if (!returnViewStatusCodes.includes(order.status.code)) {
+  if (!canMutateReturn(order)) {
     throw new OrderServiceError(
       "ORDER_NOT_ELIGIBLE",
       "Order is not eligible for return",
@@ -434,16 +407,22 @@ export async function syncOrderStatusFromLines(
   await setOrderStatusByCode(tx, orderId, ORDER_STATUS_PAID);
 }
 
-export async function listPickupOrders(organizationId: string) {
+function todayEventDate(): Date {
+  const { day } = chicagoDayBounds();
+  return new Date(`${day}T00:00:00.000Z`);
+}
+
+async function listOrdersForToday(organizationId: string) {
   const orders = await prisma.eventOrder.findMany({
-    where: {
-      organizationId,
-      status: { code: { in: pickupStatusCodes } },
-    },
+    where: { organizationId, eventDate: todayEventDate() },
     include: fulfillmentOrderInclude,
     orderBy: [{ eventDate: "asc" }, { createdAt: "desc" }],
   });
   return orders.map(mapOrder);
+}
+
+export async function listPickupOrders(organizationId: string) {
+  return listOrdersForToday(organizationId);
 }
 
 export async function getPickupOrder(
@@ -451,20 +430,11 @@ export async function getPickupOrder(
   orderId: string,
 ) {
   const order = await loadFulfillmentOrder(organizationId, orderId);
-  assertPickupViewable(order);
   return mapOrder(order);
 }
 
 export async function listReturnOrders(organizationId: string) {
-  const orders = await prisma.eventOrder.findMany({
-    where: {
-      organizationId,
-      status: { code: { in: returnStatusCodes } },
-    },
-    include: fulfillmentOrderInclude,
-    orderBy: [{ eventDate: "asc" }, { createdAt: "desc" }],
-  });
-  return orders.map(mapOrder);
+  return listOrdersForToday(organizationId);
 }
 
 export async function getReturnOrder(
@@ -472,7 +442,6 @@ export async function getReturnOrder(
   orderId: string,
 ) {
   const order = await loadFulfillmentOrder(organizationId, orderId);
-  assertReturnViewable(order);
   return mapOrder(order);
 }
 
@@ -655,7 +624,7 @@ export async function pickOrderLine(
     if (!order) {
       throw new OrderServiceError("Not Found", "Order not found", 404);
     }
-    if (!pickupStatusCodes.includes(order.status.code)) {
+    if (!canMutatePickup(order)) {
       throw new OrderServiceError(
         "ORDER_NOT_ELIGIBLE",
         "Order is not eligible for pickup",
@@ -775,7 +744,7 @@ export async function returnOrderLine(
     if (!order) {
       throw new OrderServiceError("Not Found", "Order not found", 404);
     }
-    if (!returnStatusCodes.includes(order.status.code)) {
+    if (!canMutateReturn(order)) {
       throw new OrderServiceError(
         "ORDER_NOT_ELIGIBLE",
         "Order is not eligible for return",
@@ -899,14 +868,12 @@ export async function reportReturnIssue(
     if (!order) {
       throw new OrderServiceError("Not Found", "Order not found", 404);
     }
-    if (options?.requireEligible !== false) {
-      if (!returnStatusCodes.includes(order.status.code)) {
-        throw new OrderServiceError(
-          "ORDER_NOT_ELIGIBLE",
-          "Order is not eligible for return",
-          409,
-        );
-      }
+    if (options?.requireEligible !== false && !canReportOrderIssue(order)) {
+      throw new OrderServiceError(
+        "ORDER_NOT_ELIGIBLE",
+        "Order is not eligible for an issue report",
+        409,
+      );
     }
 
     const line = order.lines.find((row) => row.itemId === input.itemId);

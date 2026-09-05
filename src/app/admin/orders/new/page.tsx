@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsFetch } from "@/lib/api/wmsFetch";
+import { wisFetch } from "@/lib/api/wisFetch";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
@@ -22,7 +22,7 @@ export default function NewOrderPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const response = await wmsFetch("/api/order", {
+      const response = await wisFetch("/api/order", {
         method: "POST",
         body: JSON.stringify({
           name,

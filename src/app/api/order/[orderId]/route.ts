@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure, requireAdmin } from "@/lib/auth/requireAuth";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import {
   getOrder,
   parseOrderUpdateInput,
@@ -51,6 +56,14 @@ export async function PATCH(request: Request, context: RouteContext) {
     const { orderId } = await context.params;
     const input = parseOrderUpdateInput(parsed.value);
     const order = await updateOrder(auth.organizationId, orderId, input);
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ORDER_UPDATED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.EVENT_ORDER,
+      entityId: order.id,
+      summary: `Updated order "${order.name}"`,
+    });
     return NextResponse.json({ order });
   } catch (error) {
     return toOrderErrorResponse(error);

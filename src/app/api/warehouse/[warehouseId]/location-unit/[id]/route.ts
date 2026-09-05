@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import {
   requireWarehouseAdmin,
   withWarehouseAdminRead,
 } from "@/lib/auth/requireWarehouseAdmin";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import {
   readJsonObject,
   toWarehouseErrorResponse,
@@ -81,6 +86,14 @@ export async function PUT(request: Request, context: RouteContext) {
       id,
       input,
     );
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.LOCATION_UNIT_UPDATED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.LOCATION_UNIT,
+      entityId: locationUnit.id,
+      summary: `Updated location unit "${locationUnit.name}"`,
+    });
     return NextResponse.json({ locationUnit });
   } catch (error) {
     return toWarehouseErrorResponse(error);
@@ -110,6 +123,14 @@ export async function DELETE(request: Request, context: RouteContext) {
       auth.warehouseId,
       id,
     );
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.LOCATION_UNIT_DELETED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.LOCATION_UNIT,
+      entityId: id,
+      summary: `Deleted location unit "${result.name}"`,
+    });
     return NextResponse.json(result);
   } catch (error) {
     return toWarehouseErrorResponse(error);

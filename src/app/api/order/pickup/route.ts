@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 /**
  * GET /api/order/pickup
- * Pickup-eligible orders with lines and pick status. Warehouse-agnostic.
+ * Orders scheduled for today (America/Chicago), with lines and pick status.
  */
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);

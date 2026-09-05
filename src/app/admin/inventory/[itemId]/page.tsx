@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
-import { wmsFetch, wmsJson } from "@/lib/api/wmsFetch";
+import { wisFetch, wisJson } from "@/lib/api/wisFetch";
 import { useInventoryLookups } from "@/lib/query/lookups";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -42,12 +42,12 @@ export default function EditInventoryPage() {
 
   const itemQuery = useQuery({
     queryKey: ["inventory-item", itemId],
-    queryFn: () => wmsJson<{ item: InventoryItem }>(`/api/item/${itemId}`),
+    queryFn: () => wisJson<{ item: InventoryItem }>(`/api/item/${itemId}`),
     enabled: Boolean(userId && itemId),
   });
   const ordersQuery = useQuery({
     queryKey: ["orders"],
-    queryFn: () => wmsJson<{ orders: OrderListItem[] }>("/api/order"),
+    queryFn: () => wisJson<{ orders: OrderListItem[] }>("/api/order"),
     enabled: Boolean(userId),
   });
 
@@ -80,7 +80,7 @@ export default function EditInventoryPage() {
     setError(null);
     try {
       const payload = formToPayload(values);
-      const response = await wmsFetch(`/api/item/${item.id}`, {
+      const response = await wisFetch(`/api/item/${item.id}`, {
         method: "PATCH",
         body: JSON.stringify({
           ...payload,
@@ -116,7 +116,7 @@ export default function EditInventoryPage() {
     setError(null);
     setOrderMessage(null);
     try {
-      const response = await wmsFetch(`/api/order/${orderId}/line`, {
+      const response = await wisFetch(`/api/order/${orderId}/line`, {
         method: "POST",
         body: JSON.stringify({
           itemId: item.id,

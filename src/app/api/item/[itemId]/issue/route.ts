@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import { requireItemWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
 import {
   createItemIssue,
@@ -49,6 +54,14 @@ export async function POST(request: Request, context: RouteContext) {
       user.id,
       input,
     );
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ISSUE_REPORTED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.ISSUE,
+      entityId: issue.id,
+      summary: `Reported ${issue.type} on item "${auth.item.name}" (qty ${issue.quantity})`,
+    });
     return NextResponse.json({ issue }, { status: 201 });
   } catch (error) {
     return toCatalogErrorResponse(error);

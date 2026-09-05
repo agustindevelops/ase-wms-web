@@ -1,4 +1,4 @@
-// ASE WMS — base schema (grows from ERD:
+// ASE WIS — base schema (grows from ERD:
 // https://agustindevelops.atlassian.net/wiki/spaces/ASE/pages/165216257)
 // Identity: Firebase Auth uid → User.firebaseUid
 // Authorization: OrganizationMembership + Role (not a global User.role)
@@ -36,6 +36,7 @@ model Organization {
   orderLines           OrderLine[]
   orderLineAllocations OrderLineAllocation[]
   issues               Issue[]
+  userActivities       UserActivity[]
 }
 
 /// App user mirrored from Firebase Auth after Bearer verification.
@@ -46,10 +47,11 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  membership    OrganizationMembership?
-  files         File[]
-  createdOrders EventOrder[]
-  issues        Issue[]
+  membership     OrganizationMembership?
+  files          File[]
+  createdOrders  EventOrder[]
+  issues         Issue[]
+  userActivities UserActivity[]
 }
 
 /// Organization-scoped role. Seed ADMIN for MVP; Staff is deferred.
@@ -378,4 +380,23 @@ model Issue {
   @@index([itemId])
   @@index([orderLineId])
   @@index([createdByUserId])
+}
+
+/// Org-scoped log of warehouse/admin writes for dashboard activity.
+model UserActivity {
+  id             String   @id @default(cuid())
+  organizationId String
+  actorUserId    String
+  action         String
+  entityType     String
+  entityId       String?
+  summary        String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  actor        User         @relation(fields: [actorUserId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, actorUserId])
 }

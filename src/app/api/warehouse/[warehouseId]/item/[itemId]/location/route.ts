@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import { requireWarehouseAdmin } from "@/lib/auth/requireWarehouseAdmin";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import { unbindItemFromLocation, withItemReadUrls } from "@/lib/item/catalogService";
 import { toCatalogErrorResponse } from "@/lib/item/errors";
 
@@ -36,6 +41,14 @@ export async function DELETE(
       ),
       { organizationId: auth.organizationId, warehouseId: auth.warehouseId },
     );
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ITEM_LOCATION_CLEARED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.ITEM,
+      entityId: item.id,
+      summary: `Cleared location for item "${item.name}"`,
+    });
     return NextResponse.json({ item });
   } catch (error) {
     return toCatalogErrorResponse(error);

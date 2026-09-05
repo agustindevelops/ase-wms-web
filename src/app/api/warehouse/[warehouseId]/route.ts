@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
+import { recordUserActivity } from "@/lib/activity/activityService";
 import { isAuthFailure } from "@/lib/auth/requireAuth";
 import {
   requireWarehouseAdmin,
   withWarehouseAdminRead,
 } from "@/lib/auth/requireWarehouseAdmin";
+import {
+  USER_ACTIVITY_ACTIONS,
+  USER_ACTIVITY_ENTITY_TYPES,
+} from "@/lib/db/defaults";
 import {
   readJsonObject,
   toWarehouseErrorResponse,
@@ -66,6 +71,14 @@ export async function PUT(request: Request, context: RouteContext) {
       auth.warehouseId,
       input,
     );
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.WAREHOUSE_UPDATED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.WAREHOUSE,
+      entityId: data.warehouse.id,
+      summary: `Updated warehouse "${data.warehouse.name}"`,
+    });
     return NextResponse.json(data);
   } catch (error) {
     return toWarehouseErrorResponse(error);
