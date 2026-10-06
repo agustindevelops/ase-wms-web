@@ -9,7 +9,7 @@ import { readJsonObject, toOrderErrorResponse } from "@/lib/order/errors";
 import {
   getReturnOrder,
   parseReturnBody,
-  returnOrderLine,
+  returnOrderItem,
 } from "@/lib/order/fulfillmentService";
 
 export const runtime = "nodejs";
@@ -56,7 +56,7 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const { orderId } = await context.params;
     const input = parseReturnBody(parsed.value);
-    const order = await returnOrderLine(
+    const order = await returnOrderItem(
       auth.organizationId,
       orderId,
       input.itemId,

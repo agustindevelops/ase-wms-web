@@ -6,9 +6,11 @@ import {
   ORDER_STATUS_PAID,
   ORDER_STATUS_PICKED_UP,
   ORDER_STATUS_RETURNED,
+  PAYMENT_ORDER_STATUS_CODES,
   QR_CODE_TYPE_ITEM,
   QR_CODE_TYPE_LOCATION,
   isIssueArchivedDisposition,
+  isPaymentOrderStatus,
   type IssueType,
 } from "@/lib/db/defaults";
 import { chicagoDayBounds } from "@/lib/dashboard/dashboardService";
@@ -51,7 +53,7 @@ const locationUnitPathSelect = {
   },
 } as const;
 
-const fulfillmentLineInclude = {
+const fulfillmentItemInclude = {
   item: {
     select: {
       id: true,
@@ -82,12 +84,12 @@ const fulfillmentLineInclude = {
   issues: {
     select: { id: true, type: true, quantity: true },
   },
-} satisfies Prisma.OrderLineInclude;
+} satisfies Prisma.OrderItemInclude;
 
 const fulfillmentOrderInclude = {
   status: { select: { id: true, code: true, name: true } },
-  lines: {
-    include: fulfillmentLineInclude,
+  items: {
+    include: fulfillmentItemInclude,
     orderBy: { createdAt: "asc" as const },
   },
 } satisfies Prisma.EventOrderInclude;
@@ -99,21 +101,21 @@ type FulfillmentOrderRecord = Prisma.EventOrderGetPayload<{
 export type FulfillmentMode = "pickup" | "return";
 
 function sumAllocations(
-  allocations: FulfillmentOrderRecord["lines"][number]["allocations"],
+  allocations: FulfillmentOrderRecord["items"][number]["allocations"],
   field: "qtyPicked" | "qtyReturned",
 ) {
   return allocations.reduce((sum, allocation) => sum + allocation[field], 0);
 }
 
 function sumItemStocks(
-  stocks: FulfillmentOrderRecord["lines"][number]["item"]["stocks"],
+  stocks: FulfillmentOrderRecord["items"][number]["item"]["stocks"],
   field: "quantityOwned" | "quantityAvailable",
 ) {
   return stocks.reduce((sum, stock) => sum + stock[field], 0);
 }
 
 function primaryAllocationStock(
-  line: FulfillmentOrderRecord["lines"][number],
+  line: FulfillmentOrderRecord["items"][number],
 ) {
   return line.allocations[0]?.inventoryStock ?? line.item.stocks[0] ?? null;
 }
@@ -243,7 +245,7 @@ function assertHomeLocation(
   }
 }
 
-function mapLine(line: FulfillmentOrderRecord["lines"][number]) {
+function mapLine(line: FulfillmentOrderRecord["items"][number]) {
   const qtyPicked = sumAllocations(line.allocations, "qtyPicked");
   const qtyReturned = sumAllocations(line.allocations, "qtyReturned");
   const stock = primaryAllocationStock(line);
@@ -294,7 +296,7 @@ function mapOrder(order: FulfillmentOrderRecord) {
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
     status: order.status,
-    lines: order.lines.map(mapLine),
+    lines: order.items.map(mapLine),
   };
 }
 
@@ -351,12 +353,20 @@ async function setOrderStatusByCode(
   });
 }
 
-export async function syncOrderStatusFromLines(
+export async function syncOrderStatusFromItems(
   tx: Prisma.TransactionClient,
   organizationId: string,
   orderId: string,
 ) {
-  const lines = await tx.orderLine.findMany({
+  const current = await tx.eventOrder.findFirst({
+    where: { id: orderId, organizationId },
+    select: { status: { select: { code: true } } },
+  });
+  if (isPaymentOrderStatus(current?.status.code)) {
+    return;
+  }
+
+  const lines = await tx.orderItem.findMany({
     where: { orderId, organizationId },
     select: {
       qtyRequested: true,
@@ -414,7 +424,11 @@ function todayEventDate(): Date {
 
 async function listOrdersForToday(organizationId: string) {
   const orders = await prisma.eventOrder.findMany({
-    where: { organizationId, eventDate: todayEventDate() },
+    where: {
+      organizationId,
+      eventDate: todayEventDate(),
+      status: { code: { notIn: [...PAYMENT_ORDER_STATUS_CODES] } },
+    },
     include: fulfillmentOrderInclude,
     orderBy: [{ eventDate: "asc" }, { createdAt: "desc" }],
   });
@@ -518,7 +532,7 @@ export async function scanFulfillmentQr(
       );
     }
     if (itemId) {
-      const line = order.lines.find((row) => row.itemId === itemId);
+      const line = order.items.find((row) => row.itemId === itemId);
       if (!line) {
         throw new OrderServiceError(
           "ITEM_NOT_ON_ORDER",
@@ -601,7 +615,7 @@ async function findPickStock(
   });
 }
 
-export async function pickOrderLine(
+export async function pickOrderItem(
   organizationId: string,
   orderId: string,
   itemId: string,
@@ -613,7 +627,7 @@ export async function pickOrderLine(
       where: { id: orderId, organizationId },
       include: {
         status: true,
-        lines: {
+        items: {
           include: {
             item: { select: { disposition: true } },
             allocations: true,
@@ -632,7 +646,7 @@ export async function pickOrderLine(
       );
     }
 
-    const line = order.lines.find((row) => row.itemId === itemId);
+    const line = order.items.find((row) => row.itemId === itemId);
     if (!line) {
       throw new OrderServiceError(
         "ITEM_NOT_ON_ORDER",
@@ -674,10 +688,10 @@ export async function pickOrderLine(
       );
     }
 
-    const existingAllocation = await tx.orderLineAllocation.findUnique({
+    const existingAllocation = await tx.orderItemAllocation.findUnique({
       where: {
-        orderLineId_inventoryStockId: {
-          orderLineId: line.id,
+        orderItemId_inventoryStockId: {
+          orderItemId: line.id,
           inventoryStockId: stock.id,
         },
       },
@@ -685,7 +699,7 @@ export async function pickOrderLine(
 
     if (existingAllocation) {
       const nextPicked = existingAllocation.qtyPicked + qty;
-      await tx.orderLineAllocation.update({
+      await tx.orderItemAllocation.update({
         where: { id: existingAllocation.id },
         data: {
           qtyPicked: { increment: qty },
@@ -693,10 +707,10 @@ export async function pickOrderLine(
         },
       });
     } else {
-      await tx.orderLineAllocation.create({
+      await tx.orderItemAllocation.create({
         data: {
           organizationId,
-          orderLineId: line.id,
+          orderItemId: line.id,
           inventoryStockId: stock.id,
           qtyAllocated: qty,
           qtyPicked: qty,
@@ -709,11 +723,11 @@ export async function pickOrderLine(
       data: { quantityAvailable: { decrement: qty } },
     });
 
-    await syncOrderStatusFromLines(tx, organizationId, orderId);
+    await syncOrderStatusFromItems(tx, organizationId, orderId);
   }).then(() => getMappedOrder(organizationId, orderId));
 }
 
-export async function returnOrderLine(
+export async function returnOrderItem(
   organizationId: string,
   orderId: string,
   itemId: string,
@@ -725,7 +739,7 @@ export async function returnOrderLine(
       where: { id: orderId, organizationId },
       include: {
         status: true,
-        lines: {
+        items: {
           include: {
             allocations: {
               include: {
@@ -752,7 +766,7 @@ export async function returnOrderLine(
       );
     }
 
-    const line = order.lines.find((row) => row.itemId === itemId);
+    const line = order.items.find((row) => row.itemId === itemId);
     if (!line) {
       throw new OrderServiceError(
         "ITEM_NOT_ON_ORDER",
@@ -769,7 +783,7 @@ export async function returnOrderLine(
       0,
     );
     const issued = await tx.issue.aggregate({
-      where: { orderLineId: line.id, organizationId },
+      where: { orderItemId: line.id, organizationId },
       _sum: { quantity: true },
     });
     const qtyIssued = issued._sum.quantity ?? 0;
@@ -815,7 +829,7 @@ export async function returnOrderLine(
       );
     }
 
-    await tx.orderLineAllocation.update({
+    await tx.orderItemAllocation.update({
       where: { id: allocation.id },
       data: { qtyReturned: { increment: qty } },
     });
@@ -827,7 +841,7 @@ export async function returnOrderLine(
       },
     });
 
-    await syncOrderStatusFromLines(tx, organizationId, orderId);
+    await syncOrderStatusFromItems(tx, organizationId, orderId);
   });
 
   return getMappedOrder(organizationId, orderId);
@@ -850,7 +864,7 @@ export async function reportReturnIssue(
       where: { id: orderId, organizationId },
       include: {
         status: true,
-        lines: {
+        items: {
           include: {
             item: {
               include: {
@@ -876,7 +890,7 @@ export async function reportReturnIssue(
       );
     }
 
-    const line = order.lines.find((row) => row.itemId === input.itemId);
+    const line = order.items.find((row) => row.itemId === input.itemId);
     if (!line) {
       throw new OrderServiceError(
         "ITEM_NOT_ON_ORDER",
@@ -917,7 +931,7 @@ export async function reportReturnIssue(
         organizationId,
         type: input.type,
         itemId: line.itemId,
-        orderLineId: line.id,
+        orderItemId: line.id,
         quantity: input.quantity,
         notes: input.notes,
         createdByUserId,
@@ -951,7 +965,7 @@ export async function reportReturnIssue(
       });
     }
 
-    await syncOrderStatusFromLines(tx, organizationId, orderId);
+    await syncOrderStatusFromItems(tx, organizationId, orderId);
   });
 
   return getMappedOrder(organizationId, orderId);

@@ -1,16 +1,43 @@
 import "server-only";
 
-/** Allowed image MIME types for inventory uploads (ASE-11). */
-export const ALLOWED_CONTENT_TYPES = [
+/** Item photos accept images only (ASE-11). */
+export const IMAGE_CONTENT_TYPES = [
   "image/jpeg",
   "image/png",
   "image/webp",
 ] as const;
 
+/** Package media also accepts video files. */
+export const VIDEO_CONTENT_TYPES = [
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+] as const;
+
+export const ALLOWED_CONTENT_TYPES = [
+  ...IMAGE_CONTENT_TYPES,
+  ...VIDEO_CONTENT_TYPES,
+] as const;
+
 export type AllowedContentType = (typeof ALLOWED_CONTENT_TYPES)[number];
 
-export const MAX_FILE_SIZE_BYTES = 15_000_000;
+export const MAX_IMAGE_SIZE_BYTES = 15_000_000;
+export const MAX_VIDEO_SIZE_BYTES = 250_000_000;
 export const UPLOAD_URL_EXPIRES_IN = 600;
+
+export function isImageContentType(value: string): boolean {
+  return (IMAGE_CONTENT_TYPES as readonly string[]).includes(value);
+}
+
+export function isVideoContentType(value: string): boolean {
+  return (VIDEO_CONTENT_TYPES as readonly string[]).includes(value);
+}
+
+export function maxFileSizeBytes(contentType: string): number {
+  return isVideoContentType(contentType)
+    ? MAX_VIDEO_SIZE_BYTES
+    : MAX_IMAGE_SIZE_BYTES;
+}
 
 export type StorageConfig = {
   accessKeyId: string;

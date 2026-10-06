@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
 import { CatalogServiceError } from "@/lib/item/errors";
+import { isImageContentType } from "@/lib/storage/config";
 import { getReadUrl } from "@/lib/storage/s3";
 
 const stockInclude = {
@@ -605,6 +606,7 @@ export async function createCatalogItem(
   return prisma.$transaction(async (tx) => {
     const files = await tx.file.findMany({
       where: { id: { in: input.photoFileIds }, organizationId },
+      include: { packageFile: { select: { id: true } } },
     });
 
     if (files.length !== input.photoFileIds.length) {
@@ -632,10 +634,17 @@ export async function createCatalogItem(
           400,
         );
       }
-      if (file.itemId) {
+      if (!isImageContentType(file.contentType)) {
+        throw new CatalogServiceError(
+          "INVALID_CONTENT_TYPE",
+          "Item photos must be JPEG, PNG, or WebP images",
+          400,
+        );
+      }
+      if (file.itemId || file.packageFile) {
         throw new CatalogServiceError(
           "FILE_ALREADY_ATTACHED",
-          "Photo file is already attached to an item",
+          "Photo file is already attached to an item or package",
           409,
         );
       }
@@ -1192,6 +1201,7 @@ async function assertVerifiedUnattachedFiles(
   }
   const files = await tx.file.findMany({
     where: { id: { in: photoFileIds }, organizationId },
+    include: { packageFile: { select: { id: true } } },
   });
   if (files.length !== photoFileIds.length) {
     throw new CatalogServiceError(
@@ -1217,10 +1227,20 @@ async function assertVerifiedUnattachedFiles(
         400,
       );
     }
-    if (file.itemId && file.itemId !== allowAttachedToItemId) {
+    if (!isImageContentType(file.contentType)) {
+      throw new CatalogServiceError(
+        "INVALID_CONTENT_TYPE",
+        "Item photos must be JPEG, PNG, or WebP images",
+        400,
+      );
+    }
+    if (
+      (file.itemId && file.itemId !== allowAttachedToItemId) ||
+      file.packageFile
+    ) {
       throw new CatalogServiceError(
         "FILE_ALREADY_ATTACHED",
-        "Photo file is already attached to an item",
+        "Photo file is already attached to an item or package",
         409,
       );
     }

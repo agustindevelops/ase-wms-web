@@ -15,7 +15,9 @@ type OrderListItem = {
   name: string;
   eventDate: string | null;
   status: OrderStatusOption;
-  _count: { lines: number };
+  contact: { firstName: string; lastName: string } | null;
+  package: { id: string; name: string } | null;
+  _count: { items: number };
 };
 
 function formatEventDate(value: string | null) {
@@ -71,7 +73,7 @@ export default function OrdersPage() {
     <section className="mx-auto max-w-5xl px-4 py-12">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="font-nickainley text-3xl text-brown-800">Orders</h2>
+          <h2 className="font-nickainley text-3xl text-coral">Orders</h2>
           <p className="mt-1 text-sm text-brown-600">
             All event orders. Filter by status if needed.
           </p>
@@ -128,20 +130,22 @@ export default function OrdersPage() {
             <tr>
               <th className="px-4 py-3 font-medium">Name</th>
               <th className="px-4 py-3 font-medium">Event date</th>
+              <th className="px-4 py-3 font-medium">Contact</th>
+              <th className="px-4 py-3 font-medium">Package</th>
               <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Lines</th>
+              <th className="px-4 py-3 font-medium">Items</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-4 py-6 text-brown-500" colSpan={4}>
+                <td className="px-4 py-6 text-brown-500" colSpan={6}>
                   Loading…
                 </td>
               </tr>
             ) : orders.length === 0 ? (
               <tr>
-                <td className="px-4 py-6 text-brown-500" colSpan={4}>
+                <td className="px-4 py-6 text-brown-500" colSpan={6}>
                   No orders yet.
                 </td>
               </tr>
@@ -160,10 +164,18 @@ export default function OrdersPage() {
                     {formatEventDate(order.eventDate)}
                   </td>
                   <td className="px-4 py-3 text-brown-700">
+                    {order.contact
+                      ? `${order.contact.firstName} ${order.contact.lastName}`
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-brown-700">
+                    {order.package?.name ?? "—"}
+                  </td>
+                  <td className="px-4 py-3 text-brown-700">
                     {order.status.name}
                   </td>
                   <td className="px-4 py-3 text-brown-700">
-                    {order._count.lines}
+                    {order._count.items}
                   </td>
                 </tr>
               ))

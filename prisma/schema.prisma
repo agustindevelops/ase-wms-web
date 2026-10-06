@@ -33,10 +33,17 @@ model Organization {
   files                File[]
   qrCodes              QrCode[]
   orders               EventOrder[]
-  orderLines           OrderLine[]
-  orderLineAllocations OrderLineAllocation[]
+  orderItems           OrderItem[]
+  orderItemAllocations OrderItemAllocation[]
   issues               Issue[]
   userActivities       UserActivity[]
+  packages             Package[]
+  packageItems         PackageItem[]
+  packageFiles         PackageFile[]
+  contacts             Contact[]
+  orderDetails         OrderDetails[]
+  clientTableDetails   ClientTableDetails[]
+  orderUploads         OrderUpload[]
 }
 
 /// App user mirrored from Firebase Auth after Bearer verification.
@@ -82,7 +89,8 @@ model OrganizationMembership {
   @@index([roleId])
 }
 
-/// Physical address for a warehouse. Fields stay optional for a barebones bootstrap.
+/// Physical address for a warehouse or an event order venue.
+/// Fields stay optional for a barebones bootstrap.
 model Address {
   id             String  @id @default(cuid())
   organizationId String
@@ -95,6 +103,7 @@ model Address {
 
   organization Organization @relation(fields: [organizationId], references: [id])
   warehouse    Warehouse?
+  order        EventOrder?
 
   @@unique([id, organizationId])
   @@index([organizationId])
@@ -150,32 +159,35 @@ model Item {
   qrCode       QrCode?          @relation(fields: [qrCodeId, organizationId], references: [id, organizationId])
   files        File[]
   stocks       InventoryStock[]
-  orderLines   OrderLine[]
+  orderItems   OrderItem[]
+  packageItems PackageItem[]
   issues       Issue[]
 
   @@unique([id, organizationId])
   @@unique([qrCodeId, organizationId])
   @@index([organizationId])
   @@index([categoryId])
+  /// Fuzzy item search (pg_trgm).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Item_name_trgm_idx")
 }
 
 /// Location-specific owned/available quantity for a catalog item.
 model InventoryStock {
-  id                 String   @id @default(cuid())
-  organizationId     String
-  itemId             String
-  warehouseId        String
-  locationUnitId     String?
-  quantityOwned      Int      @default(0)
-  quantityAvailable  Int      @default(0)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                String   @id @default(cuid())
+  organizationId    String
+  itemId            String
+  warehouseId       String
+  locationUnitId    String?
+  quantityOwned     Int      @default(0)
+  quantityAvailable Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   organization Organization          @relation(fields: [organizationId], references: [id])
   item         Item                  @relation(fields: [itemId, organizationId], references: [id, organizationId])
   warehouse    Warehouse             @relation(fields: [warehouseId, organizationId], references: [id, organizationId])
   locationUnit LocationUnit?         @relation(fields: [locationUnitId, organizationId], references: [id, organizationId])
-  allocations  OrderLineAllocation[]
+  allocations  OrderItemAllocation[]
 
   @@unique([id, organizationId])
   @@index([organizationId])
@@ -184,7 +196,8 @@ model InventoryStock {
   @@index([locationUnitId])
 }
 
-/// Catalog / inventory image. itemId is optional until attached after verify.
+/// Uploaded image. itemId is optional until attached after verify.
+/// Package media links through PackageFile, not a column here.
 /// uploadedByUserId is the owner scope for sign/verify/delete (security pattern).
 model File {
   id                  String    @id @default(cuid())
@@ -205,6 +218,7 @@ model File {
   organization Organization @relation(fields: [organizationId], references: [id])
   item         Item?        @relation(fields: [itemId, organizationId], references: [id, organizationId])
   uploadedBy   User         @relation(fields: [uploadedByUserId], references: [id])
+  packageFile  PackageFile?
 
   @@unique([id, organizationId])
   @@index([organizationId])
@@ -280,7 +294,70 @@ model QrCode {
   @@index([typeId])
 }
 
-/// Lookup: PAID, PICKED_UP, RETURNED.
+/// Reusable grouped offering shown on the customer site. Offering only: it does
+/// not reserve inventory. Ordering a package copies its items onto OrderItem.
+model Package {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  /// Markdown.
+  description    String?  @db.Text
+  basePriceCents Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  items        PackageItem[]
+  files        PackageFile[]
+  orders       EventOrder[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId])
+}
+
+/// Catalog item and quantity included in a package.
+model PackageItem {
+  id             String   @id @default(cuid())
+  organizationId String
+  packageId      String
+  itemId         String
+  quantity       Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  package      Package      @relation(fields: [packageId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  item         Item         @relation(fields: [itemId, organizationId], references: [id, organizationId])
+
+  @@unique([id, organizationId])
+  @@unique([packageId, itemId])
+  @@index([organizationId])
+  @@index([packageId])
+  @@index([itemId])
+}
+
+/// Package media: a verified image or video upload, ordered by sortOrder.
+model PackageFile {
+  id             String   @id @default(cuid())
+  organizationId String
+  packageId      String
+  fileId         String   @unique
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  package      Package      @relation(fields: [packageId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  file         File         @relation(fields: [fileId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([id, organizationId])
+  @@unique([fileId, organizationId])
+  @@index([organizationId])
+  @@index([packageId])
+}
+
+/// Lookup: PAYMENT_PENDING, PAYMENT_PROCESSED, PAID, PICKED_UP, RETURNED.
+/// Fulfillment rank (PAID → PICKED_UP → RETURNED) lives in orderStatus.ts.
 model OrderStatus {
   id   String @id @default(cuid())
   code String @unique
@@ -290,29 +367,133 @@ model OrderStatus {
 }
 
 /// Event rental order. Organization-owned; not warehouse-owned.
+/// createdByUserId is null for orders placed through the public intake API.
 model EventOrder {
-  id              String    @id @default(cuid())
-  organizationId  String
-  name            String
-  eventDate       DateTime? @db.Date
-  statusId        String
-  createdByUserId String
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                      String    @id @default(cuid())
+  organizationId          String
+  name                    String
+  eventDate               DateTime? @db.Date
+  eventStartTime          DateTime? @db.Time(0)
+  eventEndTime            DateTime? @db.Time(0)
+  guestCount              Int?
+  /// Cents. Amount quoted by the customer site; not recomputed here.
+  quote                   Int?
+  statusId                String
+  createdByUserId         String?
+  contactId               String?   @unique
+  addressId               String?   @unique
+  /// Reference only. Business rules use OrderItem rows.
+  packageId               String?
+  stripeCheckoutSessionId String?   @unique
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  status       OrderStatus  @relation(fields: [statusId], references: [id])
-  createdBy    User         @relation(fields: [createdByUserId], references: [id])
-  lines        OrderLine[]
+  organization       Organization        @relation(fields: [organizationId], references: [id])
+  status             OrderStatus         @relation(fields: [statusId], references: [id])
+  createdBy          User?               @relation(fields: [createdByUserId], references: [id])
+  contact            Contact?            @relation(fields: [contactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  address            Address?            @relation(fields: [addressId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  package            Package?            @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  items              OrderItem[]
+  details            OrderDetails?
+  clientTableDetails ClientTableDetails?
+  uploads            OrderUpload[]
 
   @@unique([id, organizationId])
+  @@unique([contactId, organizationId])
+  @@unique([addressId, organizationId])
   @@index([organizationId])
   @@index([statusId])
   @@index([createdByUserId])
+  @@index([packageId])
 }
 
-/// Requested inventory on an event order. Fulfillment qty lives on OrderLineAllocation.
-model OrderLine {
+/// Customer contact for a single order. Not a shared directory.
+model Contact {
+  id             String   @id @default(cuid())
+  organizationId String
+  firstName      String
+  lastName       String
+  email          String
+  phone          String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  order        EventOrder?
+
+  @@unique([id, organizationId])
+  @@index([organizationId])
+}
+
+/// Operational fulfillment details for an order.
+model OrderDetails {
+  id                   String    @id @default(cuid())
+  organizationId       String
+  orderId              String    @unique
+  setupStartsAt        DateTime?
+  setupEndsAt          DateTime?
+  pickupStartsAt       DateTime?
+  pickupEndsAt         DateTime?
+  isPrivateHome        Boolean   @default(false)
+  outletsAvailable     Boolean   @default(false)
+  /// STANDARD | SPECIAL
+  accessType           String    @default("STANDARD")
+  accessNotes          String?
+  allowMarketingPhotos Boolean   @default(false)
+  specialNotes         String?   @db.Text
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  order        EventOrder   @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([id, organizationId])
+  @@unique([orderId, organizationId])
+  @@index([organizationId])
+}
+
+/// Present when the client supplies their own tables and chairs.
+model ClientTableDetails {
+  id              String   @id @default(cuid())
+  organizationId  String
+  orderId         String   @unique
+  /// RECTANGULAR | ROUND | SQUARE | OTHER
+  tableShape      String
+  tableDimensions String
+  numberOfTables  Int
+  numberOfChairs  Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  order        EventOrder   @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([id, organizationId])
+  @@unique([orderId, organizationId])
+  @@index([organizationId])
+}
+
+/// Customer-provided photo or document URL for fulfillment. Not a catalog File.
+model OrderUpload {
+  id             String   @id @default(cuid())
+  organizationId String
+  orderId        String
+  /// SETUP_SPACE | CLIENT_FURNITURE
+  uploadType     String
+  fileUrl        String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  order        EventOrder   @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([id, organizationId])
+  @@index([organizationId])
+  @@index([orderId])
+}
+
+/// Requested inventory on an event order. Fulfillment qty lives on OrderItemAllocation.
+model OrderItem {
   id             String   @id @default(cuid())
   organizationId String
   orderId        String
@@ -324,7 +505,7 @@ model OrderLine {
   organization Organization          @relation(fields: [organizationId], references: [id])
   order        EventOrder            @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
   item         Item                  @relation(fields: [itemId, organizationId], references: [id, organizationId])
-  allocations  OrderLineAllocation[]
+  allocations  OrderItemAllocation[]
   issues       Issue[]
 
   @@unique([id, organizationId])
@@ -334,11 +515,11 @@ model OrderLine {
   @@index([itemId])
 }
 
-/// Fulfillment of an order line from a specific inventory stock location.
-model OrderLineAllocation {
+/// Fulfillment of an order item from a specific inventory stock location.
+model OrderItemAllocation {
   id               String   @id @default(cuid())
   organizationId   String
-  orderLineId      String
+  orderItemId      String
   inventoryStockId String
   qtyAllocated     Int      @default(0)
   qtyPicked        Int      @default(0)
@@ -347,13 +528,13 @@ model OrderLineAllocation {
   updatedAt        DateTime @updatedAt
 
   organization   Organization   @relation(fields: [organizationId], references: [id])
-  orderLine      OrderLine      @relation(fields: [orderLineId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  orderItem      OrderItem      @relation(fields: [orderItemId, organizationId], references: [id, organizationId], onDelete: Cascade)
   inventoryStock InventoryStock @relation(fields: [inventoryStockId, organizationId], references: [id, organizationId])
 
   @@unique([id, organizationId])
-  @@unique([orderLineId, inventoryStockId])
+  @@unique([orderItemId, inventoryStockId])
   @@index([organizationId])
-  @@index([orderLineId])
+  @@index([orderItemId])
   @@index([inventoryStockId])
 }
 
@@ -363,7 +544,7 @@ model Issue {
   organizationId  String
   type            String
   itemId          String
-  orderLineId     String?
+  orderItemId     String?
   quantity        Int
   notes           String?
   createdByUserId String
@@ -372,13 +553,13 @@ model Issue {
 
   organization Organization @relation(fields: [organizationId], references: [id])
   item         Item         @relation(fields: [itemId, organizationId], references: [id, organizationId])
-  orderLine    OrderLine?   @relation(fields: [orderLineId, organizationId], references: [id, organizationId])
+  orderItem    OrderItem?   @relation(fields: [orderItemId, organizationId], references: [id, organizationId])
   createdBy    User         @relation(fields: [createdByUserId], references: [id])
 
   @@unique([id, organizationId])
   @@index([organizationId])
   @@index([itemId])
-  @@index([orderLineId])
+  @@index([orderItemId])
   @@index([createdByUserId])
 }
 

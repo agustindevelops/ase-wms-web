@@ -97,9 +97,24 @@ export const ISSUE_TYPE_BROKEN = "BROKEN";
 export const ISSUE_TYPES = [ISSUE_TYPE_MISSING, ISSUE_TYPE_BROKEN] as const;
 export type IssueType = (typeof ISSUE_TYPES)[number];
 
+export const ORDER_STATUS_PAYMENT_PENDING = "PAYMENT_PENDING";
+export const ORDER_STATUS_PAYMENT_PROCESSED = "PAYMENT_PROCESSED";
 export const ORDER_STATUS_PAID = "PAID";
 export const ORDER_STATUS_PICKED_UP = "PICKED_UP";
 export const ORDER_STATUS_RETURNED = "RETURNED";
+
+/** Public intake statuses. Not pickable; an admin moves the order to PAID. */
+export const PAYMENT_ORDER_STATUS_CODES = [
+  ORDER_STATUS_PAYMENT_PENDING,
+  ORDER_STATUS_PAYMENT_PROCESSED,
+] as const;
+
+export function isPaymentOrderStatus(code: string | null | undefined): boolean {
+  return (
+    code != null &&
+    (PAYMENT_ORDER_STATUS_CODES as readonly string[]).includes(code)
+  );
+}
 
 /** @deprecated Prefer ORDER_STATUS / helpers in `@/lib/order/orderStatus`. */
 export const PICKUP_ORDER_STATUS_CODES = [ORDER_STATUS_PAID] as const;
@@ -107,12 +122,24 @@ export const PICKUP_ORDER_STATUS_CODES = [ORDER_STATUS_PAID] as const;
 export const RETURN_ORDER_STATUS_CODES = [ORDER_STATUS_PICKED_UP] as const;
 
 export const ORDER_STATUS_IDS = {
+  PAYMENT_PENDING: "os_payment_pending",
+  PAYMENT_PROCESSED: "os_payment_processed",
   PAID: "os_paid",
   PICKED_UP: "os_picked_up",
   RETURNED: "os_returned",
 } as const;
 
 export const ORDER_STATUSES = [
+  {
+    id: ORDER_STATUS_IDS.PAYMENT_PENDING,
+    code: ORDER_STATUS_PAYMENT_PENDING,
+    name: "Payment pending",
+  },
+  {
+    id: ORDER_STATUS_IDS.PAYMENT_PROCESSED,
+    code: ORDER_STATUS_PAYMENT_PROCESSED,
+    name: "Payment processed",
+  },
   { id: ORDER_STATUS_IDS.PAID, code: ORDER_STATUS_PAID, name: "Paid" },
   {
     id: ORDER_STATUS_IDS.PICKED_UP,
@@ -124,6 +151,26 @@ export const ORDER_STATUSES = [
     code: ORDER_STATUS_RETURNED,
     name: "Returned",
   },
+] as const;
+
+/** OrderDetails.accessType values (not a DB lookup table). */
+export const ORDER_ACCESS_TYPES = [
+  { code: "STANDARD", name: "Standard" },
+  { code: "SPECIAL", name: "Special" },
+] as const;
+
+/** ClientTableDetails.tableShape values (not a DB lookup table). */
+export const TABLE_SHAPES = [
+  { code: "RECTANGULAR", name: "Rectangular" },
+  { code: "ROUND", name: "Round" },
+  { code: "SQUARE", name: "Square" },
+  { code: "OTHER", name: "Other" },
+] as const;
+
+/** OrderUpload.uploadType values (not a DB lookup table). */
+export const ORDER_UPLOAD_TYPES = [
+  { code: "SETUP_SPACE", name: "Setup space" },
+  { code: "CLIENT_FURNITURE", name: "Client furniture" },
 ] as const;
 
 /** Item.material picker values for catalog (not a DB lookup table). */
@@ -195,6 +242,7 @@ export const USER_ACTIVITY_ACTIONS = {
   ORDER_LINE_ADDED: "ORDER_LINE_ADDED",
   ORDER_LINE_UPDATED: "ORDER_LINE_UPDATED",
   ORDER_LINE_REMOVED: "ORDER_LINE_REMOVED",
+  ORDER_PACKAGE_ADDED: "ORDER_PACKAGE_ADDED",
   ORDER_PICKED: "ORDER_PICKED",
   ORDER_RETURNED: "ORDER_RETURNED",
   ISSUE_REPORTED: "ISSUE_REPORTED",
@@ -205,6 +253,9 @@ export const USER_ACTIVITY_ACTIONS = {
   LOCATION_QR_ATTACHED: "LOCATION_QR_ATTACHED",
   LOCATION_QR_REMOVED: "LOCATION_QR_REMOVED",
   FILE_UPLOADED: "FILE_UPLOADED",
+  PACKAGE_CREATED: "PACKAGE_CREATED",
+  PACKAGE_UPDATED: "PACKAGE_UPDATED",
+  PACKAGE_DELETED: "PACKAGE_DELETED",
 } as const;
 
 export type UserActivityAction =
@@ -219,6 +270,7 @@ export const USER_ACTIVITY_ENTITY_TYPES = {
   QR_CODE: "QR_CODE",
   FILE: "FILE",
   WAREHOUSE: "WAREHOUSE",
+  PACKAGE: "PACKAGE",
 } as const;
 
 export type UserActivityEntityType =

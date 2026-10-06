@@ -6,7 +6,7 @@ import {
   ALLOWED_CONTENT_TYPES,
   buildInventoryS3Key,
   isAllowedContentType,
-  MAX_FILE_SIZE_BYTES,
+  maxFileSizeBytes,
   UPLOAD_URL_EXPIRES_IN,
 } from "@/lib/storage/config";
 import {
@@ -54,15 +54,16 @@ export async function signFileUpload(input: {
     );
   }
 
+  const maxBytes = maxFileSizeBytes(input.contentType);
   if (
     input.byteSize != null &&
     (!Number.isFinite(input.byteSize) ||
       input.byteSize <= 0 ||
-      input.byteSize > MAX_FILE_SIZE_BYTES)
+      input.byteSize > maxBytes)
   ) {
     throw new FileServiceError(
       "INVALID_BYTE_SIZE",
-      `byte_size must be between 1 and ${MAX_FILE_SIZE_BYTES}`,
+      `byte_size must be between 1 and ${maxBytes}`,
     );
   }
 
@@ -159,7 +160,7 @@ export async function verifyFileUpload(input: {
     await destroyFailedUpload(file);
     throw new FileServiceError(
       "FILE_VERIFICATION_ERROR",
-      `Invalid Content-Type: '${actualContentType}'. Only image/jpeg, image/png, and image/webp are allowed.`,
+      `Invalid Content-Type: '${actualContentType}'. Allowed: ${ALLOWED_CONTENT_TYPES.join(", ")}.`,
     );
   }
 
@@ -172,11 +173,12 @@ export async function verifyFileUpload(input: {
   }
 
   const actualSize = metadata.contentLength ?? 0;
-  if (actualSize > MAX_FILE_SIZE_BYTES) {
+  const maxBytes = maxFileSizeBytes(actualContentType);
+  if (actualSize > maxBytes) {
     await destroyFailedUpload(file);
     throw new FileServiceError(
       "FILE_VERIFICATION_ERROR",
-      `File size ${actualSize} bytes exceeds maximum allowed size of ${MAX_FILE_SIZE_BYTES} bytes`,
+      `File size ${actualSize} bytes exceeds maximum allowed size of ${maxBytes} bytes`,
     );
   }
 
@@ -270,6 +272,24 @@ function matchesMagic(header: Uint8Array, contentType: string): boolean {
   if (contentType === "image/webp") {
     const asText = String.fromCharCode(...header.slice(0, 12));
     return asText.startsWith("RIFF") && asText.includes("WEBP");
+  }
+  if (contentType === "video/webm") {
+    return (
+      header[0] === 0x1a &&
+      header[1] === 0x45 &&
+      header[2] === 0xdf &&
+      header[3] === 0xa3
+    );
+  }
+  if (contentType === "video/mp4" || contentType === "video/quicktime") {
+    // ISO base media: first box type at bytes 4–7. Older QuickTime files may
+    // open with a moov/mdat/wide/free/skip atom instead of ftyp.
+    const boxType = String.fromCharCode(...header.slice(4, 8));
+    const quickTimeAtoms = ["moov", "mdat", "wide", "free", "skip"];
+    return (
+      boxType === "ftyp" ||
+      (contentType === "video/quicktime" && quickTimeAtoms.includes(boxType))
+    );
   }
   return false;
 }

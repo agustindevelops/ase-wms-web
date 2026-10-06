@@ -1,9 +1,15 @@
+import { existsSync } from "node:fs";
 import { config } from "dotenv";
 import { defineConfig, env } from "prisma/config";
 
-// Next.js uses .env.local; Prisma CLI also reads .env
-config({ path: ".env.local" });
-config({ path: ".env" });
+// `npm run build` sets NODE_ENV=production so Prisma reads .env.prod.
+// Dev CLI (`migrate`, `studio`, `seed`) keeps using .env.local.
+if (process.env.NODE_ENV === "production" && existsSync(".env.prod")) {
+  config({ path: ".env.prod", override: true });
+} else {
+  config({ path: ".env.local" });
+  config({ path: ".env" });
+}
 
 export default defineConfig({
   schema: "prisma/schema.prisma",

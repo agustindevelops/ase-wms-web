@@ -1,7 +1,10 @@
 import "server-only";
 
 import { prisma } from "@/lib/db/prisma";
-import { ORDER_STATUS_RETURNED } from "@/lib/db/defaults";
+import {
+  ORDER_STATUS_PAYMENT_PENDING,
+  ORDER_STATUS_RETURNED,
+} from "@/lib/db/defaults";
 
 const DASHBOARD_TZ = "America/Chicago";
 
@@ -125,11 +128,6 @@ export async function getDashboardSummary(
   const { start: monthStart, end: monthEnd } = chicagoMonthBounds();
   const { start: recentStart, end: recentEnd } = last24HoursBounds();
 
-  const returnedStatus = await prisma.orderStatus.findUnique({
-    where: { code: ORDER_STATUS_RETURNED },
-    select: { id: true },
-  });
-
   const [ownedAgg, upcomingEventsThisMonth, issuesThisMonth, changesLast24Hours] =
     await Promise.all([
       prisma.inventoryStock.aggregate({
@@ -140,9 +138,11 @@ export async function getDashboardSummary(
         where: {
           organizationId,
           eventDate: { gte: monthStart, lt: monthEnd },
-          ...(returnedStatus
-            ? { statusId: { not: returnedStatus.id } }
-            : {}),
+          status: {
+            code: {
+              notIn: [ORDER_STATUS_RETURNED, ORDER_STATUS_PAYMENT_PENDING],
+            },
+          },
         },
       }),
       prisma.issue.count({

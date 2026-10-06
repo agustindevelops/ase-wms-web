@@ -6,8 +6,8 @@ import {
   USER_ACTIVITY_ENTITY_TYPES,
 } from "@/lib/db/defaults";
 import {
-  addOrUpdateOrderLine,
-  parseOrderLineCreateInput,
+  addOrUpdateOrderItem,
+  parseOrderItemCreateInput,
 } from "@/lib/order/orderService";
 import { readJsonObject, toOrderErrorResponse } from "@/lib/order/errors";
 
@@ -19,7 +19,7 @@ type RouteContext = {
 
 /**
  * POST /api/order/{orderId}/line
- * Create or update an order line (itemId + qtyRequested).
+ * Create or update an order item (itemId + qtyRequested).
  */
 export async function POST(request: Request, context: RouteContext) {
   const auth = await requireAdmin(request);
@@ -34,14 +34,14 @@ export async function POST(request: Request, context: RouteContext) {
 
   try {
     const { orderId } = await context.params;
-    const input = parseOrderLineCreateInput(parsed.value);
-    const order = await addOrUpdateOrderLine(
+    const input = parseOrderItemCreateInput(parsed.value);
+    const order = await addOrUpdateOrderItem(
       auth.organizationId,
       orderId,
       input,
     );
     const itemName =
-      order.lines.find((line) => line.itemId === input.itemId)?.item.name ??
+      order.items.find((row) => row.itemId === input.itemId)?.item.name ??
       "item";
     await recordUserActivity({
       organizationId: auth.organizationId,

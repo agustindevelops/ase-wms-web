@@ -2,8 +2,8 @@
 
 import { useAuthContext } from "@/context/AuthContext";
 import { wisJson } from "@/lib/api/wisFetch";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
 
 type DashboardSummary = {
   totalInventory: number;
@@ -61,37 +61,38 @@ function MetricCard({
   return <Link href={href}>{card}</Link>;
 }
 
+function errorMessage(error: unknown): string | null {
+  if (!error) {
+    return null;
+  }
+  return error instanceof Error ? error.message : "Failed to load dashboard";
+}
+
 export default function AdminPage() {
   const { user } = useAuthContext();
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [activities, setActivities] = useState<ActivityItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(true);
+  const userId = user?.uid;
 
-  const load = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const [summaryRes, activityRes] = await Promise.all([
-        wisJson<{ summary: DashboardSummary }>("/api/dashboard/summary"),
-        wisJson<{ day: string; activities: ActivityItem[] }>(
-          "/api/dashboard/activity?limit=3",
-        ),
-      ]);
-      setSummary(summaryRes.summary);
-      setActivities(activityRes.activities);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to load dashboard");
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const summaryQuery = useQuery({
+    queryKey: ["dashboard", "summary"],
+    queryFn: () =>
+      wisJson<{ summary: DashboardSummary }>("/api/dashboard/summary"),
+    enabled: Boolean(userId),
+  });
 
-  useEffect(() => {
-    if (user) {
-      void load();
-    }
-  }, [user, load]);
+  const activityQuery = useQuery({
+    queryKey: ["dashboard", "activity", 3],
+    queryFn: () =>
+      wisJson<{ day: string; activities: ActivityItem[] }>(
+        "/api/dashboard/activity?limit=3",
+      ),
+    enabled: Boolean(userId),
+  });
+
+  const summary = summaryQuery.data?.summary ?? null;
+  const activities = activityQuery.data?.activities ?? [];
+  const busy = summaryQuery.isLoading || activityQuery.isLoading;
+  const error =
+    errorMessage(summaryQuery.error) ?? errorMessage(activityQuery.error);
 
   if (!user) {
     return null;
@@ -109,7 +110,10 @@ export default function AdminPage() {
           <p className="text-sm text-peach-700">{error}</p>
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => {
+              void summaryQuery.refetch();
+              void activityQuery.refetch();
+            }}
             className="mt-3 rounded-full bg-brown-100 px-4 py-2 text-sm font-medium text-brown-800"
           >
             Retry
@@ -180,7 +184,7 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Link
           href="/admin/orders"
           className="rounded-2xl border border-brown-200 bg-white/60 p-6 transition hover:border-green-500"
@@ -188,6 +192,15 @@ export default function AdminPage() {
           <h2 className="font-nickainley text-2xl text-brown-800">Orders</h2>
           <p className="mt-2 text-sm text-brown-600">
             View orders, create an event order, and add items.
+          </p>
+        </Link>
+        <Link
+          href="/admin/packages"
+          className="rounded-2xl border border-brown-200 bg-white/60 p-6 transition hover:border-green-500"
+        >
+          <h2 className="font-nickainley text-2xl text-brown-800">Packages</h2>
+          <p className="mt-2 text-sm text-brown-600">
+            Build reusable offerings with items, pricing, photos, and videos.
           </p>
         </Link>
         <Link

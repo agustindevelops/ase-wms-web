@@ -54,7 +54,8 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error: "Bad Request",
-        message: "content_type is required (image/jpeg|image/png|image/webp)",
+        message:
+          "content_type is required (image/jpeg|image/png|image/webp|video/mp4|video/webm|video/quicktime)",
       },
       { status: 400 },
     );

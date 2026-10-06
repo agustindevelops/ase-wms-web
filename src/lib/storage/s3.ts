@@ -34,6 +34,10 @@ function getClient(): { client: S3Client; config: StorageConfig } {
         secretAccessKey: config.secretAccessKey,
       },
       forcePathStyle: true,
+      // R2: SDK default checksums sign a CRC32 of the empty body into presigned
+      // PUT URLs, so real uploads fail. Only send checksums when an op requires them.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
     cachedConfig = config;
   }

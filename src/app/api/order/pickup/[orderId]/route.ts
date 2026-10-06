@@ -9,7 +9,7 @@ import { readJsonObject, toOrderErrorResponse } from "@/lib/order/errors";
 import {
   getPickupOrder,
   parsePickBody,
-  pickOrderLine,
+  pickOrderItem,
 } from "@/lib/order/fulfillmentService";
 
 export const runtime = "nodejs";
@@ -55,7 +55,7 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const { orderId } = await context.params;
     const input = parsePickBody(parsed.value);
-    const order = await pickOrderLine(
+    const order = await pickOrderItem(
       auth.organizationId,
       orderId,
       input.itemId,

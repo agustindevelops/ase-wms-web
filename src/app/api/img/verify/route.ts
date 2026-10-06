@@ -58,7 +58,9 @@ export async function POST(request: Request) {
       fileId,
     });
 
-    let summary = "Uploaded a photo";
+    let summary = result.verifiedContentType.startsWith("video/")
+      ? "Uploaded a video"
+      : "Uploaded a photo";
     if (result.file.itemId) {
       const item = await prisma.item.findFirst({
         where: {

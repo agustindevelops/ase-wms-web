@@ -8,6 +8,7 @@ import {
 import { getOrder } from "@/lib/order/orderService";
 import { readJsonObject, toOrderErrorResponse } from "@/lib/order/errors";
 import {
+  getReturnOrder,
   parseIssueBody,
   reportReturnIssue,
 } from "@/lib/order/fulfillmentService";
@@ -40,9 +41,12 @@ export async function POST(request: Request, context: RouteContext) {
     await reportReturnIssue(auth.organizationId, orderId, auth.user.id, input, {
       requireEligible: false,
     });
-    const order = await getOrder(auth.organizationId, orderId);
+    const [order, fulfillment] = await Promise.all([
+      getOrder(auth.organizationId, orderId),
+      getReturnOrder(auth.organizationId, orderId),
+    ]);
     const itemName =
-      order.lines.find((line) => line.itemId === input.itemId)?.item.name ??
+      order.items.find((row) => row.itemId === input.itemId)?.item.name ??
       "item";
     await recordUserActivity({
       organizationId: auth.organizationId,
@@ -52,7 +56,11 @@ export async function POST(request: Request, context: RouteContext) {
       entityId: orderId,
       summary: `Reported ${input.type} on "${itemName}" for order "${order.name}" (qty ${input.quantity})`,
     });
-    return NextResponse.json({ order }, { status: 201 });
+    // Warehouse app reads fulfillment `lines` from this response; admin reads `items`.
+    return NextResponse.json(
+      { order: { ...order, lines: fulfillment.lines } },
+      { status: 201 },
+    );
   } catch (error) {
     return toOrderErrorResponse(error);
   }

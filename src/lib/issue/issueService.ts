@@ -124,7 +124,7 @@ export async function listIssues(
         },
       },
       createdBy: { select: { id: true, email: true } },
-      orderLine: {
+      orderItem: {
         select: {
           order: { select: { id: true, name: true } },
         },
@@ -150,7 +150,7 @@ export async function listIssues(
         ),
       },
       createdBy: row.createdBy,
-      order: row.orderLine?.order ?? null,
+      order: row.orderItem?.order ?? null,
     })),
   );
 }

@@ -99,6 +99,12 @@ export default function AdminLayout({
               Orders
             </Link>
             <Link
+              href="/admin/packages"
+              className={navClass(pathname.startsWith("/admin/packages"))}
+            >
+              Packages
+            </Link>
+            <Link
               href="/admin/inventory"
               className={navClass(pathname.startsWith("/admin/inventory"))}
             >

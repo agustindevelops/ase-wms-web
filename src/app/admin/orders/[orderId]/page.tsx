@@ -1,55 +1,16 @@
 "use client";
 
+import ItemSearch, { type ItemOption } from "@/components/ItemSearch";
 import { useAuthContext } from "@/context/AuthContext";
 import { wisFetch, wisJson } from "@/lib/api/wisFetch";
-import {
-  useOrderStatuses,
-  type OrderStatusOption,
-} from "@/lib/query/lookups";
+import { useOrderStatuses } from "@/lib/query/lookups";
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FormEvent, Fragment, useEffect, useState } from "react";
-
-type IssueType = "MISSING" | "BROKEN";
-
-type OrderIssue = {
-  id: string;
-  type: IssueType;
-  quantity: number;
-  notes: string | null;
-  createdAt: string;
-};
-
-type OrderLine = {
-  id: string;
-  itemId: string;
-  qtyRequested: number;
-  qtyPicked: number;
-  qtyReturned: number;
-  item: { id: string; name: string; warehouseId: string | null };
-  issues: OrderIssue[];
-};
-
-type OrderDetail = {
-  id: string;
-  name: string;
-  eventDate: string | null;
-  statusId: string;
-  status: OrderStatusOption;
-  lines: OrderLine[];
-};
-
-type CatalogItem = {
-  id: string;
-  name: string;
-  warehouse?: { id: string; name: string } | null;
-};
-
-type LineQtyEdits = {
-  qtyRequested: string;
-  qtyPicked: string;
-  qtyReturned: string;
-};
+import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
+import { formatCents, type PackageDetail } from "../../packages/packageTypes";
+import OrderInfoForm from "./OrderInfoForm";
+import type { IssueType, OrderDetail, OrderItem } from "./orderTypes";
 
 type IssueDraft = {
   type: IssueType;
@@ -57,15 +18,11 @@ type IssueDraft = {
   notes: string;
 };
 
-function dateInputValue(value: string | null) {
-  return value ? value.slice(0, 10) : "";
-}
-
 function emptyIssueDraft(): IssueDraft {
   return { type: "MISSING", quantity: "1", notes: "" };
 }
 
-function qtyIssued(line: OrderLine) {
+function qtyIssued(line: OrderItem) {
   return (line.issues ?? []).reduce((sum, issue) => sum + issue.quantity, 0);
 }
 
@@ -84,12 +41,13 @@ export default function OrderDetailPage() {
   const orderId = params.orderId;
 
   const [order, setOrder] = useState<OrderDetail | null>(null);
-  const [name, setName] = useState("");
-  const [eventDate, setEventDate] = useState("");
-  const [statusId, setStatusId] = useState("");
-  const [itemId, setItemId] = useState("");
+  const [formVersion, setFormVersion] = useState(0);
+  const [pickItem, setPickItem] = useState<ItemOption | null>(null);
+  const addItemFormRef = useRef<HTMLFormElement>(null);
   const [qtyRequested, setQtyRequested] = useState("1");
-  const [lineEdits, setLineEdits] = useState<Record<string, LineQtyEdits>>({});
+  const [packageId, setPackageId] = useState("");
+  const [packageQty, setPackageQty] = useState("1");
+  const [lineEdits, setLineEdits] = useState<Record<string, string>>({});
   const [issueDrafts, setIssueDrafts] = useState<Record<string, IssueDraft>>(
     {},
   );
@@ -98,24 +56,14 @@ export default function OrderDetailPage() {
 
   const applyOrder = (next: OrderDetail) => {
     setOrder(next);
-    setName(next.name);
-    setEventDate(dateInputValue(next.eventDate));
-    setStatusId(next.statusId);
     setLineEdits(
       Object.fromEntries(
-        next.lines.map((line) => [
-          line.id,
-          {
-            qtyRequested: String(line.qtyRequested),
-            qtyPicked: String(line.qtyPicked),
-            qtyReturned: String(line.qtyReturned),
-          },
-        ]),
+        next.items.map((line) => [line.id, String(line.qtyRequested)]),
       ),
     );
     setIssueDrafts((current) => {
       const nextDrafts: Record<string, IssueDraft> = {};
-      for (const line of next.lines) {
+      for (const line of next.items) {
         nextDrafts[line.id] = current[line.id] ?? emptyIssueDraft();
       }
       return nextDrafts;
@@ -127,10 +75,9 @@ export default function OrderDetailPage() {
     queryFn: () => wisJson<{ order: OrderDetail }>(`/api/order/${orderId}`),
     enabled: Boolean(userId && orderId),
   });
-  const catalogQuery = useQuery({
-    queryKey: ["inventory", { archived: "0" }],
-    queryFn: () =>
-      wisJson<{ items: CatalogItem[] }>("/api/item?archived=0"),
+  const packagesQuery = useQuery({
+    queryKey: ["packages"],
+    queryFn: () => wisJson<{ packages: PackageDetail[] }>("/api/package"),
     enabled: Boolean(userId),
   });
 
@@ -140,13 +87,9 @@ export default function OrderDetailPage() {
     }
   }, [orderQuery.data]);
 
-  useEffect(() => {
-    const nextItems = catalogQuery.data?.items ?? [];
-    setItemId((current) => current || nextItems[0]?.id || "");
-  }, [catalogQuery.data]);
-
-  const items = catalogQuery.data?.items ?? [];
-  const loading = orderQuery.isLoading || catalogQuery.isLoading;
+  const packages = packagesQuery.data?.packages ?? [];
+  const selectedPackageId = packageId || packages[0]?.id || "";
+  const loading = orderQuery.isLoading;
 
   const authedJson = async (path: string, init: RequestInit) => {
     const response = await wisFetch(path, init);
@@ -157,20 +100,8 @@ export default function OrderDetailPage() {
     return json;
   };
 
-  const patchLineEdit = (
-    lineId: string,
-    field: keyof LineQtyEdits,
-    value: string,
-  ) => {
-    setLineEdits((current) => ({
-      ...current,
-      [lineId]: {
-        qtyRequested: current[lineId]?.qtyRequested ?? "1",
-        qtyPicked: current[lineId]?.qtyPicked ?? "0",
-        qtyReturned: current[lineId]?.qtyReturned ?? "0",
-        [field]: value,
-      },
-    }));
+  const patchLineEdit = (lineId: string, value: string) => {
+    setLineEdits((current) => ({ ...current, [lineId]: value }));
   };
 
   const patchIssueDraft = (
@@ -187,20 +118,16 @@ export default function OrderDetailPage() {
     }));
   };
 
-  const saveHeader = async (event: FormEvent) => {
-    event.preventDefault();
+  const saveInfo = async (payload: Record<string, unknown>) => {
     setBusy(true);
     setError(null);
     try {
       const json = await authedJson(`/api/order/${orderId}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          name,
-          eventDate: eventDate || null,
-          statusId,
-        }),
+        body: JSON.stringify(payload),
       });
       applyOrder(json.order);
+      setFormVersion((version) => version + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Update failed");
     } finally {
@@ -208,19 +135,42 @@ export default function OrderDetailPage() {
     }
   };
 
+  const addPackage = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const json = await authedJson(`/api/order/${orderId}/package`, {
+        method: "POST",
+        body: JSON.stringify({
+          packageId: selectedPackageId,
+          quantity: Number(packageQty),
+        }),
+      });
+      applyOrder(json.order);
+      setPackageQty("1");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not add package");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const addLine = async (event: FormEvent) => {
     event.preventDefault();
+    if (!pickItem) return;
     setBusy(true);
     setError(null);
     try {
       const json = await authedJson(`/api/order/${orderId}/line`, {
         method: "POST",
         body: JSON.stringify({
-          itemId,
+          itemId: pickItem.id,
           qtyRequested: Number(qtyRequested),
         }),
       });
       applyOrder(json.order);
+      setPickItem(null);
       setQtyRequested("1");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not add line");
@@ -230,18 +180,14 @@ export default function OrderDetailPage() {
   };
 
   const saveLineQty = async (lineId: string) => {
-    const edits = lineEdits[lineId];
-    if (!edits) return;
+    const qty = lineEdits[lineId];
+    if (!qty) return;
     setBusy(true);
     setError(null);
     try {
       const json = await authedJson(`/api/order/${orderId}/line/${lineId}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          qtyRequested: Number(edits.qtyRequested),
-          qtyPicked: Number(edits.qtyPicked),
-          qtyReturned: Number(edits.qtyReturned),
-        }),
+        body: JSON.stringify({ qtyRequested: Number(qty) }),
       });
       applyOrder(json.order);
     } catch (cause) {
@@ -251,7 +197,7 @@ export default function OrderDetailPage() {
     }
   };
 
-  const reportIssue = async (line: OrderLine) => {
+  const reportIssue = async (line: OrderItem) => {
     const draft = issueDrafts[line.id] ?? emptyIssueDraft();
     setBusy(true);
     setError(null);
@@ -279,7 +225,7 @@ export default function OrderDetailPage() {
     }
   };
 
-  const removeLine = async (line: OrderLine) => {
+  const removeLine = async (line: OrderItem) => {
     const issued = qtyIssued(line);
     if (line.qtyPicked > 0 || line.qtyReturned > 0 || issued > 0) {
       const ok = window.confirm(
@@ -328,7 +274,7 @@ export default function OrderDetailPage() {
 
   return (
     <section className="mx-auto max-w-5xl px-4 py-12">
-      <h2 className="font-nickainley text-3xl text-brown-800">{order.name}</h2>
+      <h2 className="font-nickainley text-3xl text-coral">{order.name}</h2>
       <p className="mt-1 text-sm text-brown-600">{order.status.name}</p>
 
       {error || orderQuery.error || statusesError ? (
@@ -342,104 +288,113 @@ export default function OrderDetailPage() {
         </p>
       ) : null}
 
-      <form
-        onSubmit={saveHeader}
-        className="mt-8 grid gap-4 rounded-2xl border border-brown-200 bg-white/60 p-6 sm:grid-cols-3"
-      >
-        <div>
-          <label
-            htmlFor="name"
-            className="mb-2 block text-sm font-medium text-brown-700"
-          >
-            Name
-          </label>
-          <input
-            id="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full rounded-lg border border-brown-200 bg-white px-3 py-2 text-brown-800 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor="eventDate"
-            className="mb-2 block text-sm font-medium text-brown-700"
-          >
-            Event date
-          </label>
-          <input
-            id="eventDate"
-            type="date"
-            value={eventDate}
-            onChange={(e) => setEventDate(e.target.value)}
-            className="w-full rounded-lg border border-brown-200 bg-white px-3 py-2 text-brown-800 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor="statusId"
-            className="mb-2 block text-sm font-medium text-brown-700"
-          >
-            Status
-          </label>
-          <select
-            id="statusId"
-            value={statusId}
-            onChange={(e) => setStatusId(e.target.value)}
-            className="w-full rounded-lg border border-brown-200 bg-white px-3 py-2 text-brown-800 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200"
-          >
-            {statuses.map((status) => (
-              <option key={status.id} value={status.id}>
-                {status.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="sm:col-span-3">
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded-full bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-60"
-          >
-            Save order
-          </button>
-        </div>
-      </form>
+      <OrderInfoForm
+        key={`${order.id}-${formVersion}`}
+        order={order}
+        statuses={statuses}
+        busy={busy}
+        onSave={saveInfo}
+      />
 
       <div className="mt-10">
-        <h3 className="font-nickainley text-2xl text-brown-800">Items</h3>
+        <h3 className="font-nickainley text-2xl text-coral">Package</h3>
         <p className="mt-1 text-sm text-brown-600">
-          Edit requested, picked, and returned quantities. Reporting missing or
-          broken reduces owned quantity and does not restore available.
+          {order.package ? (
+            <>
+              Made from{" "}
+              <Link
+                href={`/admin/packages/${order.package.id}`}
+                className="font-medium text-green-800 underline-offset-2 hover:underline"
+              >
+                {order.package.name}
+              </Link>{" "}
+              ({formatCents(order.package.basePriceCents)} base). Adding a
+              package copies its items below; edit them freely afterward.
+            </>
+          ) : (
+            "Adding a package copies its items below and records it as this order's package."
+          )}
         </p>
         <form
+          onSubmit={addPackage}
+          className="mt-4 flex flex-wrap items-end gap-3 rounded-2xl border border-brown-200 bg-white/60 p-4"
+        >
+          <div className="min-w-56 flex-1">
+            <label
+              htmlFor="packageId"
+              className="mb-2 block text-sm font-medium text-brown-700"
+            >
+              Package
+            </label>
+            <select
+              id="packageId"
+              value={selectedPackageId}
+              onChange={(e) => setPackageId(e.target.value)}
+              className="w-full rounded-lg border border-brown-200 bg-white px-3 py-2 text-brown-800"
+            >
+              {packages.length === 0 ? (
+                <option value="">No packages</option>
+              ) : (
+                packages.map((pkg) => (
+                  <option key={pkg.id} value={pkg.id}>
+                    {pkg.name} · {pkg.items.length} items
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+          <div className="w-28">
+            <label
+              htmlFor="packageQty"
+              className="mb-2 block text-sm font-medium text-brown-700"
+            >
+              Qty
+            </label>
+            <input
+              id="packageQty"
+              type="number"
+              min={1}
+              step={1}
+              value={packageQty}
+              onChange={(e) => setPackageQty(e.target.value)}
+              className="w-full rounded-lg border border-brown-200 bg-white px-3 py-2 text-brown-800"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={busy || !selectedPackageId}
+            className="rounded-full bg-green-500 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-60"
+          >
+            Add package items
+          </button>
+        </form>
+      </div>
+
+      <div className="mt-10">
+        <h3 className="font-nickainley text-2xl text-coral">Items</h3>
+        <p className="mt-1 text-sm text-brown-600">
+          Edit requested quantities. Picked and returned come from warehouse
+          fulfillment. Reporting missing or broken reduces owned quantity and
+          does not restore available.
+        </p>
+        <form
+          ref={addItemFormRef}
           onSubmit={addLine}
           className="mt-4 flex flex-wrap items-end gap-3 rounded-2xl border border-brown-200 bg-white/60 p-4"
         >
           <div className="min-w-56 flex-1">
             <label
-              htmlFor="itemId"
+              htmlFor="pickItem"
               className="mb-2 block text-sm font-medium text-brown-700"
             >
               Item
             </label>
-            <select
-              id="itemId"
-              value={itemId}
-              onChange={(e) => setItemId(e.target.value)}
-              className="w-full rounded-lg border border-brown-200 bg-white px-3 py-2 text-brown-800"
-            >
-              {items.length === 0 ? (
-                <option value="">No catalog items</option>
-              ) : (
-                items.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                    {item.warehouse?.name ? ` (${item.warehouse.name})` : ""}
-                  </option>
-                ))
-              )}
-            </select>
+            <ItemSearch
+              id="pickItem"
+              value={pickItem}
+              onChange={setPickItem}
+              onConfirm={() => addItemFormRef.current?.requestSubmit()}
+            />
           </div>
           <div className="w-28">
             <label
@@ -460,7 +415,7 @@ export default function OrderDetailPage() {
           </div>
           <button
             type="submit"
-            disabled={busy || !itemId}
+            disabled={busy || !pickItem}
             className="rounded-full bg-green-500 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-60"
           >
             Add item
@@ -480,19 +435,16 @@ export default function OrderDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {order.lines.length === 0 ? (
+              {order.items.length === 0 ? (
                 <tr>
                   <td className="px-4 py-6 text-brown-500" colSpan={6}>
                     No items yet.
                   </td>
                 </tr>
               ) : (
-                order.lines.map((line) => {
-                  const edits = lineEdits[line.id] ?? {
-                    qtyRequested: String(line.qtyRequested),
-                    qtyPicked: String(line.qtyPicked),
-                    qtyReturned: String(line.qtyReturned),
-                  };
+                order.items.map((line) => {
+                  const requestedEdit =
+                    lineEdits[line.id] ?? String(line.qtyRequested);
                   const draft = issueDrafts[line.id] ?? emptyIssueDraft();
                   const issued = qtyIssued(line);
                   return (
@@ -506,44 +458,18 @@ export default function OrderDetailPage() {
                             type="number"
                             min={1}
                             step={1}
-                            value={edits.qtyRequested}
+                            value={requestedEdit}
                             onChange={(e) =>
-                              patchLineEdit(
-                                line.id,
-                                "qtyRequested",
-                                e.target.value,
-                              )
+                              patchLineEdit(line.id, e.target.value)
                             }
                             className={qtyInputClass}
                           />
                         </td>
-                        <td className="px-4 py-3">
-                          <input
-                            type="number"
-                            min={0}
-                            step={1}
-                            value={edits.qtyPicked}
-                            onChange={(e) =>
-                              patchLineEdit(line.id, "qtyPicked", e.target.value)
-                            }
-                            className={qtyInputClass}
-                          />
+                        <td className="px-4 py-3 text-brown-700">
+                          {line.qtyPicked}
                         </td>
-                        <td className="px-4 py-3">
-                          <input
-                            type="number"
-                            min={0}
-                            step={1}
-                            value={edits.qtyReturned}
-                            onChange={(e) =>
-                              patchLineEdit(
-                                line.id,
-                                "qtyReturned",
-                                e.target.value,
-                              )
-                            }
-                            className={qtyInputClass}
-                          />
+                        <td className="px-4 py-3 text-brown-700">
+                          {line.qtyReturned}
                         </td>
                         <td className="px-4 py-3 text-brown-700">{issued}</td>
                         <td className="px-4 py-3 text-right">

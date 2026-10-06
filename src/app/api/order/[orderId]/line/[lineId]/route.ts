@@ -6,10 +6,10 @@ import {
   USER_ACTIVITY_ENTITY_TYPES,
 } from "@/lib/db/defaults";
 import {
-  deleteOrderLine,
+  deleteOrderItem,
   getOrder,
-  parseOrderLineUpdate,
-  updateOrderLine,
+  parseOrderItemUpdate,
+  updateOrderItem,
 } from "@/lib/order/orderService";
 import { readJsonObject, toOrderErrorResponse } from "@/lib/order/errors";
 
@@ -21,7 +21,7 @@ type RouteContext = {
 
 /**
  * PATCH /api/order/{orderId}/line/{lineId}
- * Admin override: update qtyRequested, qtyPicked, and/or qtyReturned.
+ * Update qtyRequested on an order item.
  */
 export async function PATCH(request: Request, context: RouteContext) {
   const auth = await requireAdmin(request);
@@ -36,15 +36,15 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     const { orderId, lineId } = await context.params;
-    const input = parseOrderLineUpdate(parsed.value);
-    const order = await updateOrderLine(
+    const input = parseOrderItemUpdate(parsed.value);
+    const order = await updateOrderItem(
       auth.organizationId,
       orderId,
       lineId,
       input,
     );
     const itemName =
-      order.lines.find((line) => line.id === lineId)?.item.name ?? "item";
+      order.items.find((row) => row.id === lineId)?.item.name ?? "item";
     await recordUserActivity({
       organizationId: auth.organizationId,
       actorUserId: auth.user.id,
@@ -61,7 +61,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
 /**
  * DELETE /api/order/{orderId}/line/{lineId}
- * Remove a line. Restores available qty still outstanding on the line.
+ * Remove an order item. Restores available qty still outstanding on it.
  */
 export async function DELETE(request: Request, context: RouteContext) {
   const auth = await requireAdmin(request);
@@ -73,8 +73,8 @@ export async function DELETE(request: Request, context: RouteContext) {
     const { orderId, lineId } = await context.params;
     const before = await getOrder(auth.organizationId, orderId);
     const itemName =
-      before.lines.find((line) => line.id === lineId)?.item.name ?? "item";
-    const order = await deleteOrderLine(auth.organizationId, orderId, lineId);
+      before.items.find((row) => row.id === lineId)?.item.name ?? "item";
+    const order = await deleteOrderItem(auth.organizationId, orderId, lineId);
     await recordUserActivity({
       organizationId: auth.organizationId,
       actorUserId: auth.user.id,
