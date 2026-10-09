@@ -6,75 +6,8 @@ import {
 } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
 import { OrderServiceError } from "@/lib/order/errors";
-import {
-  asNonNegativeInt,
-  asOptionalEventDate,
-  asOptionalTime,
-  asRequiredString,
-  parseAddress,
-  parseClientTableDetails,
-  parseContact,
-  parseOrderDetails,
-  parseUploads,
-  type AddressInput,
-  type ClientTableDetailsInput,
-  type ContactInput,
-  type OrderDetailsInput,
-  type OrderUploadInput,
-} from "@/lib/order/orderFields";
 import { copyPackageItemsToOrder } from "@/lib/order/orderService";
-
-export type PublicOrderInput = {
-  packageId: string;
-  contact: ContactInput;
-  address: AddressInput;
-  guestCount: number;
-  eventDate: Date;
-  eventStartTime: Date;
-  eventEndTime: Date;
-  quote: number;
-  details: OrderDetailsInput;
-  clientTableDetails: ClientTableDetailsInput | null;
-  uploads: OrderUploadInput[];
-};
-
-function required<T>(value: T | null, field: string): T {
-  if (value === null) {
-    throw new OrderServiceError("Bad Request", `${field} is required`);
-  }
-  return value;
-}
-
-/**
- * Customer-site intake body. Pricing rules live on the customer site; `quote`
- * (cents) is stored as sent.
- */
-export function parsePublicOrderInput(
-  body: Record<string, unknown>,
-): PublicOrderInput {
-  return {
-    packageId: asRequiredString(body.packageId, "packageId"),
-    contact: parseContact(body.contact),
-    address: parseAddress(body.address),
-    guestCount: asNonNegativeInt(body.guestCount, "guestCount"),
-    eventDate: required(asOptionalEventDate(body.eventDate), "eventDate"),
-    eventStartTime: required(
-      asOptionalTime(body.eventStartTime, "eventStartTime"),
-      "eventStartTime",
-    ),
-    eventEndTime: required(
-      asOptionalTime(body.eventEndTime, "eventEndTime"),
-      "eventEndTime",
-    ),
-    quote: asNonNegativeInt(body.quote, "quote"),
-    details: parseOrderDetails(body.details, { requireWindows: true }),
-    clientTableDetails:
-      body.clientTableDetails === undefined || body.clientTableDetails === null
-        ? null
-        : parseClientTableDetails(body.clientTableDetails),
-    uploads: parseUploads(body.uploads),
-  };
-}
+import type { PublicOrderInput } from "@/lib/order/publicOrder";
 
 export async function createPublicOrder(
   organizationId: string,
@@ -131,7 +64,7 @@ export async function createPublicOrder(
         })),
       });
     }
-    await copyPackageItemsToOrder(
+    const pkg = await copyPackageItemsToOrder(
       tx,
       organizationId,
       order.id,
@@ -142,8 +75,20 @@ export async function createPublicOrder(
     return {
       id: order.id,
       status: ORDER_STATUS_PAYMENT_PENDING,
-      quote: order.quote,
+      quote: input.quote,
+      packageName: pkg.name,
     };
+  });
+}
+
+export async function attachCheckoutSession(
+  organizationId: string,
+  orderId: string,
+  stripeCheckoutSessionId: string,
+) {
+  await prisma.eventOrder.update({
+    where: { id_organizationId: { id: orderId, organizationId } },
+    data: { stripeCheckoutSessionId },
   });
 }
 

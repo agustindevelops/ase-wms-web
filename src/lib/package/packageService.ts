@@ -43,6 +43,7 @@ export type PackageMedia = {
 export type PackageRecord = {
   id: string;
   name: string;
+  summary: string | null;
   description: string | null;
   basePriceCents: number;
   createdAt: Date;
@@ -51,8 +52,12 @@ export type PackageRecord = {
   media: PackageMedia[];
 };
 
+export const PACKAGE_SUMMARY_MAX_LENGTH = 1024;
+
 export type PackageInput = {
   name: string;
+  /** Markdown for the customer-site package card. */
+  summary: string | null;
   description: string | null;
   basePriceCents: number;
   items: Array<{ itemId: string; quantity: number }>;
@@ -80,6 +85,22 @@ function asNonNegativeInt(value: unknown, field: string): number {
 export function parsePackageInput(body: Record<string, unknown>): PackageInput {
   if (typeof body.name !== "string" || !body.name.trim()) {
     badRequest("name is required");
+  }
+  if (
+    body.summary !== undefined &&
+    body.summary !== null &&
+    typeof body.summary !== "string"
+  ) {
+    badRequest("summary must be a markdown string");
+  }
+  const summary =
+    typeof body.summary === "string" && body.summary.trim()
+      ? body.summary.trim()
+      : null;
+  if (summary && summary.length > PACKAGE_SUMMARY_MAX_LENGTH) {
+    badRequest(
+      `summary must be ${PACKAGE_SUMMARY_MAX_LENGTH} characters or fewer`,
+    );
   }
   if (
     body.description !== undefined &&
@@ -131,6 +152,7 @@ export function parsePackageInput(body: Record<string, unknown>): PackageInput {
 
   return {
     name: body.name.trim(),
+    summary,
     description:
       typeof body.description === "string" && body.description.trim()
         ? body.description
@@ -174,6 +196,7 @@ async function mapPackage(pkg: PackageRaw): Promise<PackageRecord> {
   return {
     id: pkg.id,
     name: pkg.name,
+    summary: pkg.summary,
     description: pkg.description,
     basePriceCents: pkg.basePriceCents,
     createdAt: pkg.createdAt,
@@ -310,6 +333,7 @@ export async function createPackage(
       data: {
         organizationId,
         name: input.name,
+        summary: input.summary,
         description: input.description,
         basePriceCents: input.basePriceCents,
       },
@@ -338,6 +362,7 @@ export async function updatePackage(
       where: { id: packageId },
       data: {
         name: input.name,
+        summary: input.summary,
         description: input.description,
         basePriceCents: input.basePriceCents,
       },
@@ -368,6 +393,7 @@ export function toPublicPackage(pkg: PackageRecord) {
   return {
     id: pkg.id,
     name: pkg.name,
+    summary: pkg.summary,
     description: pkg.description,
     basePriceCents: pkg.basePriceCents,
     media: pkg.media.flatMap((row) =>

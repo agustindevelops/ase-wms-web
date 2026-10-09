@@ -13,6 +13,7 @@ import {
   parsePackageInput,
   updatePackage,
 } from "@/lib/package/packageService";
+import { revalidatePublicPackages } from "@/lib/public/publicPackages";
 
 export const runtime = "nodejs";
 
@@ -57,6 +58,7 @@ export async function PUT(request: Request, context: RouteContext) {
     const { packageId } = await context.params;
     const input = parsePackageInput(parsed.value);
     const pkg = await updatePackage(auth.organizationId, packageId, input);
+    revalidatePublicPackages();
     await recordUserActivity({
       organizationId: auth.organizationId,
       actorUserId: auth.user.id,
@@ -84,6 +86,7 @@ export async function DELETE(request: Request, context: RouteContext) {
   try {
     const { packageId } = await context.params;
     const removed = await deletePackage(auth.organizationId, packageId);
+    revalidatePublicPackages();
     await recordUserActivity({
       organizationId: auth.organizationId,
       actorUserId: auth.user.id,

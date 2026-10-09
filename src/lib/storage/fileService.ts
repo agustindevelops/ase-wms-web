@@ -253,7 +253,7 @@ async function destroyFailedUpload(file: File): Promise<void> {
   await prisma.file.delete({ where: { id: file.id } }).catch(() => undefined);
 }
 
-function matchesMagic(header: Uint8Array, contentType: string): boolean {
+export function matchesMagic(header: Uint8Array, contentType: string): boolean {
   if (contentType === "image/jpeg") {
     return header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
   }

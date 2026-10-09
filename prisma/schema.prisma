@@ -300,6 +300,8 @@ model Package {
   id             String   @id @default(cuid())
   organizationId String
   name           String
+  /// Markdown shown on the customer-site package card.
+  summary        String?  @db.VarChar(1024)
   /// Markdown.
   description    String?  @db.Text
   basePriceCents Int      @default(0)

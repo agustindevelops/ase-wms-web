@@ -112,6 +112,23 @@ Client helpers: `wisFetch("/api/…")` and `aseApiFetch("/api/…")` hit same-or
 | `GET /api/test/img?file_id=` | Bearer → owner-scoped File + signed/public read URL |
 | `DELETE /api/img/{id}` | Bearer → owner-scoped delete |
 
+### Public customer API
+
+These routes do not require a Firebase Bearer token. The caller must supply the organization id. They live under `/api/public` so a mistyped path such as `/api/dshboard` stays a 404 and is not treated as an organization id. CORS is limited to `PUBLIC_API_ALLOWED_ORIGINS`.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /api/public/{organizationId}/packages` | Packages for that organization (markdown description, price, media, items) |
+| `POST /api/public/{organizationId}/orders` | Dinner-experience booking: builds setup/pickup windows and the quote server-side, creates a `PAYMENT_PENDING` order, returns a Stripe Checkout URL |
+| `POST /api/public/{organizationId}/uploads` | Booking photo upload (multipart `file`, JPEG/PNG/WebP) → `{ fileUrl }` |
+| `GET /api/public/{organizationId}/uploads/{name}` | Redirects to a short-lived signed read of a booking photo |
+
+An unknown organization id returns 404.
+
+`GET /packages` is served from the Next data cache for `PUBLIC_CACHE_TIMER` seconds (default 300, max 10800, `0` disables) so customer-site traffic doesn't reach the database. Creating, updating, or deleting a package in admin clears it.
+
+Booking pricing and timing live in `src/lib/order/dinnerExperience/` (an identical copy sits in the customer site for the live preview). The server never trusts a browser total. Checkout needs `STRIPE_SECRET_KEY`; payment is confirmed by `POST /api/stripe/webhook`.
+
 ### Cloudflare R2 image uploads (ASE-11)
 
 Only three env vars:

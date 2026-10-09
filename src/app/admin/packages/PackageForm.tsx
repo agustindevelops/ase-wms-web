@@ -11,6 +11,7 @@ import PackageMediaList, {
 import {
   centsToInput,
   inputToCents,
+  PACKAGE_SUMMARY_MAX_LENGTH,
   type PackageDetail,
   type PackagePayload,
 } from "./packageTypes";
@@ -33,6 +34,7 @@ export default function PackageForm({
   onSubmit,
 }: Props) {
   const [name, setName] = useState(initial?.name ?? "");
+  const [summary, setSummary] = useState(initial?.summary ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [basePrice, setBasePrice] = useState(
     centsToInput(initial?.basePriceCents ?? 0),
@@ -69,6 +71,8 @@ export default function PackageForm({
   };
 
   const uploading = media.some((line) => line.status === "uploading");
+  const summaryLength = summary.trim().length;
+  const summaryTooLong = summaryLength > PACKAGE_SUMMARY_MAX_LENGTH;
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -93,9 +97,16 @@ export default function PackageForm({
       setLocalError("Item quantities must be whole numbers greater than 0");
       return;
     }
+    if (summaryTooLong) {
+      setLocalError(
+        `Summary must be ${PACKAGE_SUMMARY_MAX_LENGTH} characters or fewer, including formatting`,
+      );
+      return;
+    }
     setLocalError(null);
     onSubmit({
       name,
+      summary: summary.trim() || null,
       description: description.trim() ? description : null,
       basePriceCents,
       items: parsedItems,
@@ -138,6 +149,31 @@ export default function PackageForm({
             placeholder="0.00"
             className={fieldClass}
           />
+        </div>
+        <div className="sm:col-span-2">
+          <label
+            htmlFor="summary"
+            className="mb-2 block text-sm font-medium text-brown-700"
+          >
+            Summary
+          </label>
+          <MarkdownEditor
+            id="summary"
+            ariaLabel="Summary"
+            value={summary}
+            onChange={setSummary}
+            placeholder="A cozy candlelit dinner for up to eight, styled and set up in your home."
+          />
+          <p className="mt-1 text-xs text-brown-500">
+            Shown on the package card. Formatting is saved as markdown and counts
+            toward the limit.{" "}
+            <span
+              className={summaryTooLong ? "font-medium text-peach-700" : undefined}
+              role={summaryTooLong ? "alert" : undefined}
+            >
+              {summaryLength}/{PACKAGE_SUMMARY_MAX_LENGTH}
+            </span>
+          </p>
         </div>
         <div className="sm:col-span-2">
           <label

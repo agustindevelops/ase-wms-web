@@ -77,6 +77,22 @@ export async function getUploadUrl(input: {
   };
 }
 
+export async function putObject(input: {
+  s3Key: string;
+  contentType: string;
+  body: Uint8Array;
+}): Promise<void> {
+  const { client: s3, config } = getClient();
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: input.s3Key,
+      ContentType: input.contentType,
+      Body: input.body,
+    }),
+  );
+}
+
 export async function getReadUrl(
   s3Key: string,
   expiresIn = UPLOAD_URL_EXPIRES_IN,

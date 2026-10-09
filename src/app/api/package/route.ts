@@ -12,6 +12,7 @@ import {
   listPackages,
   parsePackageInput,
 } from "@/lib/package/packageService";
+import { revalidatePublicPackages } from "@/lib/public/publicPackages";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
 
 /**
  * POST /api/package
- * Create a package: name, markdown description, basePriceCents,
+ * Create a package: name, markdown summary and description, basePriceCents,
  * items [{ itemId, quantity }], media [{ fileId } | { videoUrl }].
  */
 export async function POST(request: Request) {
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
   try {
     const input = parsePackageInput(parsed.value);
     const pkg = await createPackage(auth.organizationId, input);
+    revalidatePublicPackages();
     await recordUserActivity({
       organizationId: auth.organizationId,
       actorUserId: auth.user.id,

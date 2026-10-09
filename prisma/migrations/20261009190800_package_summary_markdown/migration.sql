@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Package" ALTER COLUMN "summary" SET DATA TYPE VARCHAR(1024);

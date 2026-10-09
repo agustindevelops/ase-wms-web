@@ -102,3 +102,22 @@ export function getStorageConfig(): StorageConfig {
 export function buildInventoryS3Key(userId: string, fileId: string): string {
   return `${userId}/inventory/${fileId}`;
 }
+
+/** Customer booking photos. Browser resizes before upload; this is a hard cap. */
+export const MAX_ORDER_UPLOAD_SIZE_BYTES = 8_000_000;
+
+export const ORDER_UPLOAD_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+export const ORDER_UPLOAD_NAME_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$/;
+
+export function buildOrderUploadS3Key(
+  organizationId: string,
+  uploadName: string,
+): string {
+  return `${organizationId}/order-uploads/${uploadName}`;
+}
