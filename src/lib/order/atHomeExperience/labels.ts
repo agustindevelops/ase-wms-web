@@ -1,7 +1,7 @@
 import type { PickupOption } from "./constants";
 
 export function experienceLabel(usesClientFurniture: boolean): string {
-  return usesClientFurniture ? "Dinner Styling" : "Full Dinner Experience";
+  return usesClientFurniture ? "At-Home Styling" : "At-Home Experience";
 }
 
 export function pickupLabel(option: PickupOption): string {

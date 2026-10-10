@@ -31,7 +31,7 @@ type RouteContext = {
 
 /**
  * POST /api/public/{organizationId}/orders
- * Unauthenticated dinner-experience booking from the customer site. The body
+ * Unauthenticated at-home experience booking from the customer site. The body
  * carries facts only (contact, venue, event times, pickup choice, details,
  * optional client tables, photo URLs). The server builds setup/pickup windows,
  * calculates the quote, creates a PAYMENT_PENDING order with the package items,
@@ -64,7 +64,7 @@ export async function POST(request: Request, context: RouteContext) {
       amountCents: order.quote,
       productName: `${order.packageName} · ${input.experienceLabel}`,
       customerEmail: input.contact.email,
-      ...bookingReturnUrls(siteOrigin, order.id, input.packageId),
+      ...bookingReturnUrls(siteOrigin, order.id, order.packageSlug),
     });
     await attachCheckoutSession(resolvedId, order.id, session.id);
 

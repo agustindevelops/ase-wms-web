@@ -12,9 +12,40 @@ import {
 import {
   deleteObject,
   getObjectHeadBytes,
+  getReadUrl,
   getUploadUrl,
   headObject,
 } from "@/lib/storage/s3";
+
+/** Presigned reads die. `"eternal"` is a stable app URL that signs a fresh read on each request. */
+export const ETERNAL_READ_URL = "eternal" as const;
+
+export type ReadUrlExpiresIn = number | typeof ETERNAL_READ_URL;
+
+/** Path a browser can keep forever. The public file route redirects to a new signature. */
+export function eternalPublicFilePath(
+  organizationId: string,
+  fileId: string,
+): string {
+  return `/api/public/${encodeURIComponent(organizationId)}/files/${encodeURIComponent(fileId)}`;
+}
+
+/**
+ * Read link for an uploaded object.
+ * Pass `expiresIn: "eternal"` when the URL may be cached by getStatic / ISR.
+ * A number is a presigned URL that stops working after that many seconds (max 7 days).
+ */
+export async function createFileReadUrl(input: {
+  s3Key: string;
+  organizationId: string;
+  fileId: string;
+  expiresIn?: ReadUrlExpiresIn;
+}): Promise<string> {
+  if (input.expiresIn === ETERNAL_READ_URL) {
+    return eternalPublicFilePath(input.organizationId, input.fileId);
+  }
+  return getReadUrl(input.s3Key, input.expiresIn ?? UPLOAD_URL_EXPIRES_IN);
+}
 
 export class FileServiceError extends Error {
   status: number;

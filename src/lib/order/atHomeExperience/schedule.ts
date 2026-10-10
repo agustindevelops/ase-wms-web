@@ -10,7 +10,7 @@ import {
   timeToMinutes,
   zonedDateTime,
 } from "./dateTime";
-import { DinnerExperienceError } from "./errors";
+import { AtHomeExperienceError } from "./errors";
 import { pickupLabel } from "./labels";
 
 const MINUTE_MS = 60 * 1000;
@@ -21,13 +21,13 @@ export function assertEventTimes(
   eventEndTime: string,
 ) {
   if (!isValidDateString(eventDate)) {
-    throw new DinnerExperienceError("Event date must be YYYY-MM-DD.");
+    throw new AtHomeExperienceError("Event date must be YYYY-MM-DD.");
   }
   if (!isValidTimeString(eventStartTime) || !isValidTimeString(eventEndTime)) {
-    throw new DinnerExperienceError("Event times must be HH:mm.");
+    throw new AtHomeExperienceError("Event times must be HH:mm.");
   }
   if (timeToMinutes(eventEndTime) <= timeToMinutes(eventStartTime)) {
-    throw new DinnerExperienceError(
+    throw new AtHomeExperienceError(
       "Event end time must be after the start time on the same day.",
     );
   }
@@ -74,7 +74,7 @@ export function calculatePickupWindow(input: {
   morningPickupTime: string | null;
 }) {
   if (!getAvailablePickupOptions(input.eventEndTime).includes(input.pickupOption)) {
-    throw new DinnerExperienceError(
+    throw new AtHomeExperienceError(
       `${pickupLabel(input.pickupOption)} is not available for an event ending at ${input.eventEndTime}.`,
     );
   }
@@ -85,7 +85,7 @@ export function calculatePickupWindow(input: {
       !time ||
       !(NEXT_MORNING_PICKUP_TIMES as readonly string[]).includes(time)
     ) {
-      throw new DinnerExperienceError(
+      throw new AtHomeExperienceError(
         "Choose a next-morning pickup time between 8:00 AM and 11:00 AM.",
       );
     }

@@ -3,10 +3,18 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { PackageServiceError } from "@/lib/package/errors";
+import {
+  isReservedSlug,
+  isValidSlug,
+  PACKAGE_SLUG_MAX_LENGTH,
+} from "@/lib/package/slug";
 import { isVideoContentType } from "@/lib/storage/config";
-import { getReadUrl } from "@/lib/storage/s3";
+import {
+  createFileReadUrl,
+  type ReadUrlExpiresIn,
+} from "@/lib/storage/fileService";
 
-/** Long enough for a customer to browse and play package videos. */
+/** Admin screens refetch; this only has to cover one browsing session. */
 const MEDIA_READ_URL_EXPIRES_IN = 6 * 60 * 60;
 
 const packageInclude = {
@@ -43,6 +51,7 @@ export type PackageMedia = {
 export type PackageRecord = {
   id: string;
   name: string;
+  slug: string;
   summary: string | null;
   description: string | null;
   basePriceCents: number;
@@ -56,6 +65,8 @@ export const PACKAGE_SUMMARY_MAX_LENGTH = 1024;
 
 export type PackageInput = {
   name: string;
+  /** Customer-site URL segment, unique within the organization. */
+  slug: string;
   /** Markdown for the customer-site package card. */
   summary: string | null;
   description: string | null;
@@ -85,6 +96,18 @@ function asNonNegativeInt(value: unknown, field: string): number {
 export function parsePackageInput(body: Record<string, unknown>): PackageInput {
   if (typeof body.name !== "string" || !body.name.trim()) {
     badRequest("name is required");
+  }
+  const slug = typeof body.slug === "string" ? body.slug.trim() : "";
+  if (!slug) {
+    badRequest("slug is required");
+  }
+  if (!isValidSlug(slug)) {
+    badRequest(
+      `slug must be lowercase letters and numbers separated by hyphens, ${PACKAGE_SLUG_MAX_LENGTH} characters or fewer`,
+    );
+  }
+  if (isReservedSlug(slug)) {
+    badRequest(`slug "${slug}" is reserved by the customer site`);
   }
   if (
     body.summary !== undefined &&
@@ -152,6 +175,7 @@ export function parsePackageInput(body: Record<string, unknown>): PackageInput {
 
   return {
     name: body.name.trim(),
+    slug,
     summary,
     description:
       typeof body.description === "string" && body.description.trim()
@@ -163,11 +187,16 @@ export function parsePackageInput(body: Record<string, unknown>): PackageInput {
   };
 }
 
-async function fileReadUrl(file: {
-  s3Key: string;
-  status: string;
-  publicUrl: string | null;
-}): Promise<string | null> {
+async function fileReadUrl(
+  organizationId: string,
+  file: {
+    id: string;
+    s3Key: string;
+    status: string;
+    publicUrl: string | null;
+  },
+  expiresIn: ReadUrlExpiresIn,
+): Promise<string | null> {
   if (file.publicUrl) {
     return file.publicUrl;
   }
@@ -175,13 +204,21 @@ async function fileReadUrl(file: {
     return null;
   }
   try {
-    return await getReadUrl(file.s3Key, MEDIA_READ_URL_EXPIRES_IN);
+    return await createFileReadUrl({
+      s3Key: file.s3Key,
+      organizationId,
+      fileId: file.id,
+      expiresIn,
+    });
   } catch {
     return null;
   }
 }
 
-async function mapPackage(pkg: PackageRaw): Promise<PackageRecord> {
+async function mapPackage(
+  pkg: PackageRaw,
+  mediaExpiresIn: ReadUrlExpiresIn = MEDIA_READ_URL_EXPIRES_IN,
+): Promise<PackageRecord> {
   const media = await Promise.all(
     pkg.files.map(
       async (row): Promise<PackageMedia> => ({
@@ -189,13 +226,14 @@ async function mapPackage(pkg: PackageRaw): Promise<PackageRecord> {
         fileId: row.file.id,
         type: isVideoContentType(row.file.contentType) ? "video" : "image",
         contentType: row.file.contentType,
-        url: await fileReadUrl(row.file),
+        url: await fileReadUrl(pkg.organizationId, row.file, mediaExpiresIn),
       }),
     ),
   );
   return {
     id: pkg.id,
     name: pkg.name,
+    slug: pkg.slug,
     summary: pkg.summary,
     description: pkg.description,
     basePriceCents: pkg.basePriceCents,
@@ -211,13 +249,18 @@ async function mapPackage(pkg: PackageRaw): Promise<PackageRecord> {
   };
 }
 
-export async function listPackages(organizationId: string) {
+export async function listPackages(
+  organizationId: string,
+  options?: { mediaExpiresIn?: ReadUrlExpiresIn },
+) {
   const packages = await prisma.package.findMany({
     where: { organizationId },
     include: packageInclude,
     orderBy: { name: "asc" },
   });
-  return Promise.all(packages.map(mapPackage));
+  return Promise.all(
+    packages.map((pkg) => mapPackage(pkg, options?.mediaExpiresIn)),
+  );
 }
 
 export async function getPackage(
@@ -234,12 +277,41 @@ export async function getPackage(
   return mapPackage(pkg);
 }
 
+function slugTaken(slug: string): PackageServiceError {
+  return new PackageServiceError(
+    "PACKAGE_SLUG_TAKEN",
+    `Another package already uses the URL slug "${slug}"`,
+    409,
+  );
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code: unknown }).code === "P2002"
+  );
+}
+
 async function assertPackageRefs(
   tx: Prisma.TransactionClient,
   organizationId: string,
   input: PackageInput,
   packageId?: string,
 ) {
+  const sameSlug = await tx.package.findFirst({
+    where: {
+      organizationId,
+      slug: input.slug,
+      ...(packageId ? { id: { not: packageId } } : {}),
+    },
+    select: { id: true },
+  });
+  if (sameSlug) {
+    throw slugTaken(input.slug);
+  }
+
   const itemIds = input.items.map((row) => row.itemId);
   if (itemIds.length > 0) {
     const found = await tx.item.count({
@@ -327,20 +399,27 @@ export async function createPackage(
   organizationId: string,
   input: PackageInput,
 ): Promise<PackageRecord> {
-  const id = await prisma.$transaction(async (tx) => {
-    await assertPackageRefs(tx, organizationId, input);
-    const pkg = await tx.package.create({
-      data: {
-        organizationId,
-        name: input.name,
-        summary: input.summary,
-        description: input.description,
-        basePriceCents: input.basePriceCents,
-      },
+  let id: string;
+  try {
+    id = await prisma.$transaction(async (tx) => {
+      await assertPackageRefs(tx, organizationId, input);
+      const pkg = await tx.package.create({
+        data: {
+          organizationId,
+          name: input.name,
+          slug: input.slug,
+          summary: input.summary,
+          description: input.description,
+          basePriceCents: input.basePriceCents,
+        },
+      });
+      await writePackageChildren(tx, organizationId, pkg.id, input);
+      return pkg.id;
     });
-    await writePackageChildren(tx, organizationId, pkg.id, input);
-    return pkg.id;
-  });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) throw slugTaken(input.slug);
+    throw error;
+  }
   return getPackage(organizationId, id);
 }
 
@@ -349,26 +428,32 @@ export async function updatePackage(
   packageId: string,
   input: PackageInput,
 ): Promise<PackageRecord> {
-  await prisma.$transaction(async (tx) => {
-    const existing = await tx.package.findFirst({
-      where: { id: packageId, organizationId },
-      select: { id: true },
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.package.findFirst({
+        where: { id: packageId, organizationId },
+        select: { id: true },
+      });
+      if (!existing) {
+        throw new PackageServiceError("Not Found", "Package not found", 404);
+      }
+      await assertPackageRefs(tx, organizationId, input, packageId);
+      await tx.package.update({
+        where: { id: packageId },
+        data: {
+          name: input.name,
+          slug: input.slug,
+          summary: input.summary,
+          description: input.description,
+          basePriceCents: input.basePriceCents,
+        },
+      });
+      await writePackageChildren(tx, organizationId, packageId, input);
     });
-    if (!existing) {
-      throw new PackageServiceError("Not Found", "Package not found", 404);
-    }
-    await assertPackageRefs(tx, organizationId, input, packageId);
-    await tx.package.update({
-      where: { id: packageId },
-      data: {
-        name: input.name,
-        summary: input.summary,
-        description: input.description,
-        basePriceCents: input.basePriceCents,
-      },
-    });
-    await writePackageChildren(tx, organizationId, packageId, input);
-  });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) throw slugTaken(input.slug);
+    throw error;
+  }
   return getPackage(organizationId, packageId);
 }
 
@@ -393,6 +478,7 @@ export function toPublicPackage(pkg: PackageRecord) {
   return {
     id: pkg.id,
     name: pkg.name,
+    slug: pkg.slug,
     summary: pkg.summary,
     description: pkg.description,
     basePriceCents: pkg.basePriceCents,

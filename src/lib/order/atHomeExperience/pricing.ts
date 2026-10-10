@@ -1,7 +1,7 @@
-import { type AccessType, DINNER_EXPERIENCE_PRICING } from "./constants";
-import { DinnerExperienceError } from "./errors";
+import { type AccessType, AT_HOME_EXPERIENCE_PRICING } from "./constants";
+import { AtHomeExperienceError } from "./errors";
 
-export type DinnerExperienceQuoteInput = {
+export type AtHomeExperienceQuoteInput = {
   guestCount: number;
   /** Persisted as the presence of ClientTableDetails, not a column. */
   usesClientFurniture: boolean;
@@ -10,7 +10,7 @@ export type DinnerExperienceQuoteInput = {
   isOutsideServiceArea?: boolean;
 };
 
-export type DinnerExperienceQuote = {
+export type AtHomeExperienceQuote = {
   basePriceCents: number;
   guestAdjustmentCents: number;
   accessFeeCents: number;
@@ -22,17 +22,17 @@ export type DinnerExperienceQuote = {
 export function isValidGuestCount(guestCount: number): boolean {
   return (
     Number.isInteger(guestCount) &&
-    guestCount >= DINNER_EXPERIENCE_PRICING.baseGuestCount &&
-    guestCount <= DINNER_EXPERIENCE_PRICING.maxGuestCount
+    guestCount >= AT_HOME_EXPERIENCE_PRICING.baseGuestCount &&
+    guestCount <= AT_HOME_EXPERIENCE_PRICING.maxGuestCount
   );
 }
 
-export function calculateDinnerExperienceQuote(
-  input: DinnerExperienceQuoteInput,
-): DinnerExperienceQuote {
-  const pricing = DINNER_EXPERIENCE_PRICING;
+export function calculateAtHomeExperienceQuote(
+  input: AtHomeExperienceQuoteInput,
+): AtHomeExperienceQuote {
+  const pricing = AT_HOME_EXPERIENCE_PRICING;
   if (!isValidGuestCount(input.guestCount)) {
-    throw new DinnerExperienceError(
+    throw new AtHomeExperienceError(
       `Guest count must be between ${pricing.baseGuestCount} and ${pricing.maxGuestCount}.`,
     );
   }

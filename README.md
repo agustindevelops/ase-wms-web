@@ -118,8 +118,10 @@ These routes do not require a Firebase Bearer token. The caller must supply the 
 
 | Route | Behavior |
 | --- | --- |
-| `GET /api/public/{organizationId}/packages` | Packages for that organization (markdown description, price, media, items) |
-| `POST /api/public/{organizationId}/orders` | Dinner-experience booking: builds setup/pickup windows and the quote server-side, creates a `PAYMENT_PENDING` order, returns a Stripe Checkout URL |
+| `GET /api/public/{organizationId}/packages` | Packages for that organization (slug, markdown description, price, media, items) |
+| `GET /api/public/{organizationId}/packages/{slug}` | One package by its customer-site URL slug → `{ package }`; 404 if unknown |
+| `GET /api/public/{organizationId}/event-dates-booked?month=YYYY-MM` | Calendar data: `earliestBookableDate` (first day a guest may book, today + 3 days in America/Chicago) and `bookedDates` in that month. `month` defaults to the current month. Orders still in `PAYMENT_PENDING` do not hold a day |
+| `POST /api/public/{organizationId}/orders` | Dinner-experience booking: builds setup/pickup windows and the quote server-side, rejects dates before `earliestBookableDate` or already booked, creates a `PAYMENT_PENDING` order, returns a Stripe Checkout URL. Photos (`CLIENT_FURNITURE`) are required when the client provides their own tables and rejected otherwise |
 | `POST /api/public/{organizationId}/uploads` | Booking photo upload (multipart `file`, JPEG/PNG/WebP) → `{ fileUrl }` |
 | `GET /api/public/{organizationId}/uploads/{name}` | Redirects to a short-lived signed read of a booking photo |
 
@@ -127,7 +129,7 @@ An unknown organization id returns 404.
 
 `GET /packages` is served from the Next data cache for `PUBLIC_CACHE_TIMER` seconds (default 300, max 10800, `0` disables) so customer-site traffic doesn't reach the database. Creating, updating, or deleting a package in admin clears it.
 
-Booking pricing and timing live in `src/lib/order/dinnerExperience/` (an identical copy sits in the customer site for the live preview). The server never trusts a browser total. Checkout needs `STRIPE_SECRET_KEY`; payment is confirmed by `POST /api/stripe/webhook`.
+Booking pricing and timing live in `src/lib/order/atHomeExperience/` (an identical copy sits in the customer site for the live preview). The server never trusts a browser total. Checkout needs `STRIPE_SECRET_KEY`; payment is confirmed by `POST /api/stripe/webhook`.
 
 ### Cloudflare R2 image uploads (ASE-11)
 

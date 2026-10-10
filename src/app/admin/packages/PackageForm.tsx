@@ -2,6 +2,12 @@
 
 import ItemSearch, { type ItemOption } from "@/components/ItemSearch";
 import MarkdownEditor from "@/components/MarkdownEditor";
+import {
+  isReservedSlug,
+  isValidSlug,
+  PACKAGE_SLUG_MAX_LENGTH,
+  slugify,
+} from "@/lib/package/slug";
 import { FormEvent, useState } from "react";
 import { fieldClass } from "../inventory/inventoryTypes";
 import PackageMediaList, {
@@ -34,6 +40,9 @@ export default function PackageForm({
   onSubmit,
 }: Props) {
   const [name, setName] = useState(initial?.name ?? "");
+  const [slug, setSlug] = useState(initial?.slug ?? "");
+  // New packages follow the name until the slug is edited; existing URLs never change on their own.
+  const [slugEdited, setSlugEdited] = useState(Boolean(initial));
   const [summary, setSummary] = useState(initial?.summary ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [basePrice, setBasePrice] = useState(
@@ -103,9 +112,20 @@ export default function PackageForm({
       );
       return;
     }
+    if (!isValidSlug(slug)) {
+      setLocalError(
+        "URL slug must be lowercase letters and numbers separated by hyphens, like fantasy-forest",
+      );
+      return;
+    }
+    if (isReservedSlug(slug)) {
+      setLocalError(`"${slug}" is already used by a page on the website. Choose another URL slug.`);
+      return;
+    }
     setLocalError(null);
     onSubmit({
       name,
+      slug,
       summary: summary.trim() || null,
       description: description.trim() ? description : null,
       basePriceCents,
@@ -130,9 +150,36 @@ export default function PackageForm({
             id="name"
             required
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (!slugEdited) setSlug(slugify(e.target.value));
+            }}
             className={fieldClass}
           />
+        </div>
+        <div>
+          <label htmlFor="slug" className="mb-2 block text-sm font-medium text-brown-700">
+            URL slug
+          </label>
+          <input
+            id="slug"
+            required
+            maxLength={PACKAGE_SLUG_MAX_LENGTH}
+            value={slug}
+            onChange={(e) => {
+              setSlugEdited(true);
+              setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"));
+            }}
+            onBlur={() => setSlug((current) => slugify(current))}
+            placeholder="fantasy-forest"
+            className={fieldClass}
+          />
+          <p className="mt-1 text-xs text-brown-500">
+            Customer site page: /at-home-experiences/{slug || "…"}
+            {initial && slug !== initial.slug
+              ? ". Changing it breaks links already shared."
+              : ""}
+          </p>
         </div>
         <div>
           <label
@@ -162,7 +209,7 @@ export default function PackageForm({
             ariaLabel="Summary"
             value={summary}
             onChange={setSummary}
-            placeholder="A cozy candlelit dinner for up to eight, styled and set up in your home."
+            placeholder="A candlelit dinner for up to eight, styled and set up in your home."
           />
           <p className="mt-1 text-xs text-brown-500">
             Shown on the package card. Formatting is saved as markdown and counts

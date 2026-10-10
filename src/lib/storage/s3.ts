@@ -93,10 +93,28 @@ export async function putObject(input: {
   );
 }
 
+/** SigV4 rejects anything longer. A static page can outlive this, so public reads use an eternal app URL instead. */
+export const MAX_PRESIGNED_URL_EXPIRES_IN = 60 * 60 * 24 * 7;
+
+/**
+ * Short-lived signed GET. `expiresIn` is seconds, at most 7 days.
+ * Links embedded in public responses that static pages cache must not use this;
+ * call `createFileReadUrl` with `expiresIn: "eternal"`.
+ */
 export async function getReadUrl(
   s3Key: string,
   expiresIn = UPLOAD_URL_EXPIRES_IN,
 ): Promise<string> {
+  if (
+    !Number.isInteger(expiresIn) ||
+    expiresIn < 1 ||
+    expiresIn > MAX_PRESIGNED_URL_EXPIRES_IN
+  ) {
+    throw new Error(
+      `Read URL expiresIn must be an integer from 1 to ${MAX_PRESIGNED_URL_EXPIRES_IN} seconds. Use createFileReadUrl({ expiresIn: "eternal" }) for links that static pages keep.`,
+    );
+  }
+
   const { client: s3, config } = getClient();
   return getSignedUrl(
     s3,

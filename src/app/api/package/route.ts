@@ -36,7 +36,8 @@ export async function GET(request: Request) {
 
 /**
  * POST /api/package
- * Create a package: name, markdown summary and description, basePriceCents,
+ * Create a package: name, slug (customer-site URL segment, unique per
+ * organization; 409 PACKAGE_SLUG_TAKEN), markdown summary and description, basePriceCents,
  * items [{ itemId, quantity }], media [{ fileId } | { videoUrl }].
  */
 export async function POST(request: Request) {

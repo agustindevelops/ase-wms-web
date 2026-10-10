@@ -1,4 +1,4 @@
-export const DINNER_EXPERIENCE_PRICING = {
+export const AT_HOME_EXPERIENCE_PRICING = {
   ourFurnitureBaseCents: 65_000,
   clientFurnitureBaseCents: 45_000,
 
@@ -11,7 +11,10 @@ export const DINNER_EXPERIENCE_PRICING = {
   outsideServiceAreaCents: 1_500,
 } as const;
 
-export const DINNER_EXPERIENCE_TIME_ZONE = "America/Chicago";
+export const AT_HOME_EXPERIENCE_TIME_ZONE = "America/Chicago";
+
+/** Guests book at least this many days ahead: a Friday booking can be for Monday. */
+export const BOOKING_LEAD_DAYS = 3;
 
 export const PICKUP_RULES = {
   sameDayPickupCutoffHour: 21,

@@ -1,4 +1,4 @@
-import { DINNER_EXPERIENCE_TIME_ZONE } from "./constants";
+import { BOOKING_LEAD_DAYS, AT_HOME_EXPERIENCE_TIME_ZONE } from "./constants";
 
 /** "YYYY-MM-DD" that names a real calendar day. */
 export function isValidDateString(value: string): boolean {
@@ -27,6 +27,21 @@ export function addDays(date: string, days: number): string {
   return new Date(Date.UTC(year, month - 1, day + days))
     .toISOString()
     .slice(0, 10);
+}
+
+/** Today's date at the event location as YYYY-MM-DD. */
+export function todayAtEventLocation(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: AT_HOME_EXPERIENCE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+/** First day a guest may book (YYYY-MM-DD): today at the event location plus the lead time. */
+export function earliestBookableDate(now: Date = new Date()): string {
+  return addDays(todayAtEventLocation(now), BOOKING_LEAD_DAYS);
 }
 
 function timeZoneOffsetMs(instant: number, timeZone: string): number {
@@ -58,8 +73,8 @@ export function zonedDateTime(date: string, time: string): Date {
   const [year, month, day] = date.split("-").map(Number);
   const [hours, minutes] = time.split(":").map(Number);
   const wall = Date.UTC(year, month - 1, day, hours, minutes);
-  const firstGuess = wall - timeZoneOffsetMs(wall, DINNER_EXPERIENCE_TIME_ZONE);
+  const firstGuess = wall - timeZoneOffsetMs(wall, AT_HOME_EXPERIENCE_TIME_ZONE);
   return new Date(
-    wall - timeZoneOffsetMs(firstGuess, DINNER_EXPERIENCE_TIME_ZONE),
+    wall - timeZoneOffsetMs(firstGuess, AT_HOME_EXPERIENCE_TIME_ZONE),
   );
 }

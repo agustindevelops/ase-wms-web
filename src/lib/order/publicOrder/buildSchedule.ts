@@ -2,11 +2,12 @@ import {
   assertEventTimes,
   calculatePickupWindow,
   calculateSetupWindow,
-  DINNER_EXPERIENCE_PRICING,
-  DinnerExperienceError,
+  AT_HOME_EXPERIENCE_PRICING,
+  AtHomeExperienceError,
+  earliestBookableDate,
   isValidGuestCount,
   type PickupOption,
-} from "@/lib/order/dinnerExperience";
+} from "@/lib/order/atHomeExperience";
 
 import { badRequest } from "./parseHelpers";
 
@@ -21,13 +22,19 @@ export type ScheduleInput = {
 
 function assertBookable(input: ScheduleInput, setupStartsAt: Date) {
   if (!isValidGuestCount(input.guestCount)) {
-    const { baseGuestCount, maxGuestCount } = DINNER_EXPERIENCE_PRICING;
-    throw new DinnerExperienceError(
+    const { baseGuestCount, maxGuestCount } = AT_HOME_EXPERIENCE_PRICING;
+    throw new AtHomeExperienceError(
       `Guest count must be between ${baseGuestCount} and ${maxGuestCount}.`,
     );
   }
   if (setupStartsAt.getTime() <= Date.now()) {
-    throw new DinnerExperienceError("Event must be scheduled in the future.");
+    throw new AtHomeExperienceError("Event must be scheduled in the future.");
+  }
+  const earliest = earliestBookableDate();
+  if (input.eventDate < earliest) {
+    throw new AtHomeExperienceError(
+      `Event date must be ${earliest} or later.`,
+    );
   }
 }
 
@@ -39,7 +46,7 @@ export function buildSchedule(input: ScheduleInput) {
     assertBookable(input, setup.setupStartsAt);
     return { ...setup, ...calculatePickupWindow(input) };
   } catch (error) {
-    if (error instanceof DinnerExperienceError) {
+    if (error instanceof AtHomeExperienceError) {
       badRequest(error.message);
     }
     throw error;

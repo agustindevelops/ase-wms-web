@@ -1,9 +1,9 @@
 import {
-  calculateDinnerExperienceQuote,
+  calculateAtHomeExperienceQuote,
   experienceLabel,
   isOutsideServiceArea,
   type AccessType,
-} from "@/lib/order/dinnerExperience";
+} from "@/lib/order/atHomeExperience";
 import {
   asNonNegativeInt,
   asOptionalEventDate,
@@ -52,7 +52,7 @@ export function parsePublicOrderInput(
       "morningPickupTime",
     ),
   });
-  const quote = calculateDinnerExperienceQuote({
+  const quote = calculateAtHomeExperienceQuote({
     guestCount,
     usesClientFurniture,
     accessType: details.accessType as AccessType,

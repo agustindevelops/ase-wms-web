@@ -2,10 +2,10 @@
 export function bookingReturnUrls(
   siteOrigin: string,
   orderId: string,
-  packageId: string,
+  packageSlug: string,
 ) {
   return {
     successUrl: `${siteOrigin}/at-home-experiences/booked?order=${encodeURIComponent(orderId)}`,
-    cancelUrl: `${siteOrigin}/at-home-experiences/${encodeURIComponent(packageId)}`,
+    cancelUrl: `${siteOrigin}/at-home-experiences/${encodeURIComponent(packageSlug)}`,
   };
 }

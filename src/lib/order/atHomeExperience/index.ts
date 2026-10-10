@@ -1,6 +1,6 @@
 /**
- * Dinner experience pricing and timing. Kept identical to
- * aniah-social-events/src/lib/booking/dinnerExperience so the
+ * At-home experience pricing and timing. Kept identical to
+ * aniah-social-events/src/lib/booking/atHomeExperience so the
  * customer-site preview and the server checkout agree.
  */
 export * from "./constants";

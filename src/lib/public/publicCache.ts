@@ -3,7 +3,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 
 const DEFAULT_PUBLIC_CACHE_SECONDS = 5 * 60;
-// Package media URLs are signed for 6 hours; cached responses must expire well before them.
+// Caps a mis-set PUBLIC_CACHE_TIMER. Public media URLs do not expire, so this is not a signature deadline.
 const MAX_PUBLIC_CACHE_SECONDS = 3 * 60 * 60;
 
 /** PUBLIC_CACHE_TIMER in seconds; 0 turns caching off. */

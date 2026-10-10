@@ -300,6 +300,8 @@ model Package {
   id             String   @id @default(cuid())
   organizationId String
   name           String
+  /// URL segment on the customer site: /at-home-experiences/{slug}.
+  slug           String
   /// Markdown shown on the customer-site package card.
   summary        String?  @db.VarChar(1024)
   /// Markdown.
@@ -314,6 +316,7 @@ model Package {
   orders       EventOrder[]
 
   @@unique([id, organizationId])
+  @@unique([organizationId, slug])
   @@index([organizationId])
 }
 

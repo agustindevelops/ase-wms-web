@@ -11,6 +11,7 @@ export const PACKAGE_SUMMARY_MAX_LENGTH = 1024;
 export type PackageDetail = {
   id: string;
   name: string;
+  slug: string;
   summary: string | null;
   description: string | null;
   basePriceCents: number;
@@ -20,6 +21,7 @@ export type PackageDetail = {
 
 export type PackagePayload = {
   name: string;
+  slug: string;
   summary: string | null;
   description: string | null;
   basePriceCents: number;

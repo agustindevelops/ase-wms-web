@@ -6,6 +6,7 @@ import {
 } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
 import { OrderServiceError } from "@/lib/order/errors";
+import { assertEventDateOpen } from "@/lib/order/eventDatesBooked";
 import { copyPackageItemsToOrder } from "@/lib/order/orderService";
 import type { PublicOrderInput } from "@/lib/order/publicOrder";
 
@@ -23,6 +24,7 @@ export async function createPublicOrder(
       500,
     );
   }
+  await assertEventDateOpen(organizationId, input.eventDate);
 
   return prisma.$transaction(async (tx) => {
     const contact = await tx.contact.create({
@@ -77,6 +79,7 @@ export async function createPublicOrder(
       status: ORDER_STATUS_PAYMENT_PENDING,
       quote: input.quote,
       packageName: pkg.name,
+      packageSlug: pkg.slug,
     };
   });
 }

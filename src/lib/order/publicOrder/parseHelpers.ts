@@ -1,4 +1,4 @@
-import { PICKUP_OPTIONS, type PickupOption } from "@/lib/order/dinnerExperience";
+import { PICKUP_OPTIONS, type PickupOption } from "@/lib/order/atHomeExperience";
 import { OrderServiceError } from "@/lib/order/errors";
 import {
   parseClientTableDetails,
@@ -40,18 +40,26 @@ export function parseClientFurniture(
   return details;
 }
 
-/** At least one photo, all classified for the furniture choice. */
+/**
+ * Photos are only collected when the customer supplies their own tables and
+ * chairs: at least one, all CLIENT_FURNITURE. Otherwise there must be none.
+ */
 export function parseBookingPhotos(
   value: unknown,
   usesClientFurniture: boolean,
 ): OrderUploadInput[] {
   const uploads = parseUploads(value);
-  const uploadType = usesClientFurniture ? "CLIENT_FURNITURE" : "SETUP_SPACE";
-  if (uploads.length === 0) {
-    badRequest("At least one photo is required");
+  if (!usesClientFurniture) {
+    if (uploads.length > 0) {
+      badRequest("Photos are only accepted when you provide your own tables");
+    }
+    return [];
   }
-  if (uploads.some((upload) => upload.uploadType !== uploadType)) {
-    badRequest(`Photos must be classified as ${uploadType}`);
+  if (uploads.length === 0) {
+    badRequest("At least one photo of your tables is required");
+  }
+  if (uploads.some((upload) => upload.uploadType !== "CLIENT_FURNITURE")) {
+    badRequest("Photos must be classified as CLIENT_FURNITURE");
   }
   return uploads;
 }
