@@ -175,7 +175,7 @@ export default function PackageForm({
             className={fieldClass}
           />
           <p className="mt-1 text-xs text-brown-500">
-            Customer site page: /at-home-experiences/{slug || "…"}
+            Customer site page: /intimate-celebrations/{slug || "…"}
             {initial && slug !== initial.slug
               ? ". Changing it breaks links already shared."
               : ""}

@@ -13,7 +13,7 @@ export function slugify(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/** Static pages under /at-home-experiences/ on the customer site that a package would shadow. */
+/** Static pages under /intimate-celebrations/ on the customer site that a package would shadow. */
 const RESERVED_SLUGS = new Set(["booked"]);
 
 export function isReservedSlug(value: string): boolean {

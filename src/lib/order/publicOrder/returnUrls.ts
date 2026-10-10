@@ -5,7 +5,7 @@ export function bookingReturnUrls(
   packageSlug: string,
 ) {
   return {
-    successUrl: `${siteOrigin}/at-home-experiences/booked?order=${encodeURIComponent(orderId)}`,
-    cancelUrl: `${siteOrigin}/at-home-experiences/${encodeURIComponent(packageSlug)}`,
+    successUrl: `${siteOrigin}/intimate-celebrations/booked?order=${encodeURIComponent(orderId)}`,
+    cancelUrl: `${siteOrigin}/intimate-celebrations/${encodeURIComponent(packageSlug)}`,
   };
 }
