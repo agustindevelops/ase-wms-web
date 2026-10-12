@@ -4,8 +4,24 @@ import Stripe from "stripe";
 import { OrderServiceError } from "@/lib/order/errors";
 
 const INTEGRATION_IDENTIFIER = "ase_dinner_experience_qhvtrmzk";
+/** Stripe rejects USD charges under $0.50. */
+const STRIPE_MIN_CHARGE_CENTS = 50;
 
 let client: Stripe | null = null;
+
+function testPaymentsEnabled(): boolean {
+  const value = process.env.TEST_PAYMENTS?.trim().toLowerCase();
+  return value === "true" || value === "1";
+}
+
+/**
+ * With TEST_PAYMENTS on, charge 1% of the quote, floored to whole cents and
+ * raised to Stripe's minimum, so live payments can be tested cheaply.
+ */
+function chargeAmountCents(quoteCents: number): number {
+  if (!testPaymentsEnabled()) return quoteCents;
+  return Math.max(Math.floor(quoteCents / 100), STRIPE_MIN_CHARGE_CENTS);
+}
 
 function getStripeClient(): Stripe {
   const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
@@ -28,8 +44,9 @@ export function assertCheckoutConfigured() {
 }
 
 /**
- * Hosted Checkout for one order. Amount is the server-calculated quote; the
- * webhook moves the order to PAYMENT_PROCESSED using metadata.orderId.
+ * Hosted Checkout for one order. Amount is the server-calculated quote (scaled
+ * down when TEST_PAYMENTS is on); the webhook moves the order to
+ * PAYMENT_PROCESSED using metadata.orderId.
  */
 export async function createOrderCheckoutSession(input: {
   orderId: string;
@@ -50,8 +67,12 @@ export async function createOrderCheckoutSession(input: {
           quantity: 1,
           price_data: {
             currency: "usd",
-            unit_amount: input.amountCents,
-            product_data: { name: input.productName },
+            unit_amount: chargeAmountCents(input.amountCents),
+            product_data: {
+              name: testPaymentsEnabled()
+                ? `${input.productName} (test payment)`
+                : input.productName,
+            },
           },
         },
       ],
@@ -78,4 +99,16 @@ export async function createOrderCheckoutSession(input: {
     );
   }
   return { id: session.id, url: session.url };
+}
+
+/**
+ * Whether Stripe reports the Checkout Session as paid. Lets the customer's
+ * booked page confirm payment when it loads before the webhook arrives.
+ */
+export async function isCheckoutSessionPaid(sessionId: string): Promise<boolean> {
+  const session = await getStripeClient().checkout.sessions.retrieve(sessionId);
+  return (
+    session.payment_status === "paid" ||
+    session.payment_status === "no_payment_required"
+  );
 }

@@ -5,7 +5,8 @@ export function bookingReturnUrls(
   packageSlug: string,
 ) {
   return {
-    successUrl: `${siteOrigin}/intimate-celebrations/booked?order=${encodeURIComponent(orderId)}`,
+    // Stripe fills in {CHECKOUT_SESSION_ID}; it must stay unencoded.
+    successUrl: `${siteOrigin}/intimate-celebrations/booked?order=${encodeURIComponent(orderId)}&session_id={CHECKOUT_SESSION_ID}`,
     cancelUrl: `${siteOrigin}/intimate-celebrations/${encodeURIComponent(packageSlug)}`,
   };
 }
