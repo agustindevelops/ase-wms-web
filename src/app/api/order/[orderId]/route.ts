@@ -6,6 +6,7 @@ import {
   USER_ACTIVITY_ENTITY_TYPES,
 } from "@/lib/db/defaults";
 import {
+  deleteOrder,
   getOrder,
   parseOrderUpdateInput,
   updateOrder,
@@ -65,6 +66,33 @@ export async function PATCH(request: Request, context: RouteContext) {
       summary: `Updated order "${order.name}"`,
     });
     return NextResponse.json({ order });
+  } catch (error) {
+    return toOrderErrorResponse(error);
+  }
+}
+
+/**
+ * DELETE /api/order/{orderId}
+ * Permanently delete an order and release its outstanding picked inventory.
+ */
+export async function DELETE(request: Request, context: RouteContext) {
+  const auth = await requireAdmin(request);
+  if (isAuthFailure(auth)) {
+    return auth.response;
+  }
+
+  try {
+    const { orderId } = await context.params;
+    const order = await deleteOrder(auth.organizationId, orderId);
+    await recordUserActivity({
+      organizationId: auth.organizationId,
+      actorUserId: auth.user.id,
+      action: USER_ACTIVITY_ACTIONS.ORDER_DELETED,
+      entityType: USER_ACTIVITY_ENTITY_TYPES.EVENT_ORDER,
+      entityId: order.id,
+      summary: `Deleted order "${order.name}"`,
+    });
+    return NextResponse.json({ deletedOrderId: order.id });
   } catch (error) {
     return toOrderErrorResponse(error);
   }

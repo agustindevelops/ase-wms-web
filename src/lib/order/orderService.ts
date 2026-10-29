@@ -491,6 +491,96 @@ export async function updateOrder(
 }
 
 /**
+ * Delete an order and release any picked inventory that has not been returned
+ * or recorded as missing/broken. Issues remain as inventory history.
+ */
+export async function deleteOrder(
+  organizationId: string,
+  orderId: string,
+): Promise<{ id: string; name: string }> {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.eventOrder.findFirst({
+      where: { id: orderId, organizationId },
+      select: {
+        id: true,
+        name: true,
+        contactId: true,
+        addressId: true,
+        items: {
+          select: {
+            id: true,
+            issues: { select: { quantity: true } },
+            allocations: {
+              select: {
+                inventoryStockId: true,
+                qtyPicked: true,
+                qtyReturned: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!order) {
+      throw new OrderServiceError("Not Found", "Order not found", 404);
+    }
+
+    for (const item of order.items) {
+      const qtyIssued = item.issues.reduce(
+        (sum, issue) => sum + issue.quantity,
+        0,
+      );
+      const totalPicked = item.allocations.reduce(
+        (sum, allocation) => sum + allocation.qtyPicked,
+        0,
+      );
+      const totalReturned = item.allocations.reduce(
+        (sum, allocation) => sum + allocation.qtyReturned,
+        0,
+      );
+      let remainingRestore = Math.max(
+        0,
+        totalPicked - totalReturned - qtyIssued,
+      );
+
+      for (const allocation of item.allocations) {
+        if (remainingRestore <= 0) break;
+        const outstanding = Math.max(
+          0,
+          allocation.qtyPicked - allocation.qtyReturned,
+        );
+        const restoreAvailable = Math.min(outstanding, remainingRestore);
+        if (restoreAvailable > 0) {
+          await tx.inventoryStock.update({
+            where: { id: allocation.inventoryStockId },
+            data: { quantityAvailable: { increment: restoreAvailable } },
+          });
+          remainingRestore -= restoreAvailable;
+        }
+      }
+    }
+
+    const orderItemIds = order.items.map((item) => item.id);
+    if (orderItemIds.length > 0) {
+      await tx.issue.updateMany({
+        where: { organizationId, orderItemId: { in: orderItemIds } },
+        data: { orderItemId: null },
+      });
+    }
+
+    await tx.eventOrder.delete({ where: { id: order.id } });
+    if (order.contactId) {
+      await tx.contact.delete({ where: { id: order.contactId } });
+    }
+    if (order.addressId) {
+      await tx.address.delete({ where: { id: order.addressId } });
+    }
+
+    return { id: order.id, name: order.name };
+  });
+}
+
+/**
  * Copy package items onto the order (qtyRequested increases when the item is
  * already present) and record the package reference. Later package edits do
  * not change the order.
