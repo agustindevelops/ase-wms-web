@@ -133,6 +133,13 @@ export default function AdminLayout({
                     <p className="mb-2 truncate px-1 text-xs text-brown-500">
                       {user.email}
                     </p>
+                    <Link
+                      href="/admin/profile"
+                      onClick={() => setMenuOpen(false)}
+                      className="mb-2 block rounded-full px-4 py-2 text-center text-sm font-medium text-brown-700 transition hover:bg-brown-100"
+                    >
+                      Profile
+                    </Link>
                     <button
                       type="button"
                       onClick={() => void handleSignOut()}
