@@ -1,5 +1,4 @@
 import { AuthContextProvider } from "@/context/AuthContext";
-import { ModalProvider } from "@/context/ModalContext";
 import { QueryProvider } from "@/lib/query/QueryProvider";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
@@ -38,9 +37,7 @@ export default function RootLayout({
         className={`${inter.variable} ${nickainley.variable} bg-cream text-brown-800 antialiased`}
       >
         <QueryProvider>
-          <AuthContextProvider>
-            <ModalProvider>{children}</ModalProvider>
-          </AuthContextProvider>
+          <AuthContextProvider>{children}</AuthContextProvider>
         </QueryProvider>
       </body>
     </html>

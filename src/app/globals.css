@@ -56,6 +56,15 @@ body {
   min-height: 100vh;
 }
 
+[data-admin-interactive] a,
+[data-admin-interactive] button:not(:disabled) {
+  cursor: pointer;
+}
+
+[data-admin-interactive] button:disabled {
+  cursor: not-allowed;
+}
+
 /* Rendered markdown / rich text (Tailwind preflight resets lists and headings). */
 .rich-text {
   color: var(--color-brown-800);
