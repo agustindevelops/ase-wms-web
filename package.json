@@ -27,9 +27,9 @@
     "@tiptap/react": "^3.31.4",
     "@tiptap/starter-kit": "^3.31.4",
     "dotenv": "^17.4.2",
-    "firebase": "^12.14.0",
-    "firebase-admin": "^14.2.0",
-    "next": "^15.5.22",
+    "firebase": "^13.1.0",
+    "firebase-admin": "^14.5.0",
+    "next": "^15.5.28",
     "pg": "^8.23.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
@@ -44,8 +44,8 @@
     "@types/react-dom": "19.2.3",
     "autoprefixer": "10.5.2",
     "eslint": "9.39.5",
-    "eslint-config-next": "^15.5.22",
-    "postcss": "^8.5.18",
+    "eslint-config-next": "^15.5.28",
+    "postcss": "8.5.32",
     "prisma": "^7.9.1",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.12",
@@ -54,6 +54,8 @@
   "overrides": {
     "jwks-rsa": {
       "jose": "5.10.0"
-    }
+    },
+    "postcss": "8.5.32",
+    "@grpc/grpc-js": "1.14.6"
   }
 }
