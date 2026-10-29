@@ -12,6 +12,7 @@ import type {
 import { getFirebaseAdminAuth } from "@/lib/auth/firebaseAdmin";
 import {
   getTokenOrganizationId,
+  getTokenRoles,
   syncOrgClaim,
 } from "@/lib/auth/orgClaims";
 import {
@@ -102,6 +103,7 @@ export async function requireOrgContext(
   try {
     const session = await getProvisionedSession(auth.decoded.uid);
     const tokenOrganizationId = getTokenOrganizationId(auth.decoded);
+    const tokenRoles = getTokenRoles(auth.decoded);
 
     if (
       tokenOrganizationId &&
@@ -121,7 +123,9 @@ export async function requireOrgContext(
     const tokenRefreshRequired = await syncOrgClaim(
       auth.decoded.uid,
       tokenOrganizationId,
+      tokenRoles,
       session.organizationId,
+      [session.role.code],
     );
 
     return {

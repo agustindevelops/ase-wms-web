@@ -29,10 +29,11 @@ function formatEventDate(value: string | null) {
 }
 
 export default function OrdersPage() {
-  const { user } = useAuthContext();
+  const { user, hasRole } = useAuthContext();
   const modal = useModal();
   const queryClient = useQueryClient();
   const userId = user?.uid;
+  const canDeleteOrders = hasRole("ADMIN");
   const { data: statuses = [], error: statusesError } = useOrderStatuses();
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
 
@@ -69,6 +70,7 @@ export default function OrdersPage() {
   };
 
   const requestOrderDeletion = (order: OrderListItem) => {
+    if (!canDeleteOrders) return;
     modal.showModal({
       title: "Delete order?",
       content: (
@@ -156,19 +158,27 @@ export default function OrdersPage() {
               <th className="px-4 py-3 font-medium">Package</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Items</th>
-              <th className="px-4 py-3 font-medium" />
+              {canDeleteOrders ? (
+                <th className="px-4 py-3 font-medium" />
+              ) : null}
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-4 py-6 text-brown-500" colSpan={7}>
+                <td
+                  className="px-4 py-6 text-brown-500"
+                  colSpan={canDeleteOrders ? 7 : 6}
+                >
                   Loading…
                 </td>
               </tr>
             ) : orders.length === 0 ? (
               <tr>
-                <td className="px-4 py-6 text-brown-500" colSpan={7}>
+                <td
+                  className="px-4 py-6 text-brown-500"
+                  colSpan={canDeleteOrders ? 7 : 6}
+                >
                   No orders yet.
                 </td>
               </tr>
@@ -200,15 +210,17 @@ export default function OrdersPage() {
                   <td className="px-4 py-3 text-brown-700">
                     {order._count.items}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => requestOrderDeletion(order)}
-                      className="font-medium text-peach-700 underline-offset-2 hover:underline"
-                    >
-                      Delete
-                    </button>
-                  </td>
+                  {canDeleteOrders ? (
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => requestOrderDeletion(order)}
+                        className="font-medium text-peach-700 underline-offset-2 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
               ))
             )}

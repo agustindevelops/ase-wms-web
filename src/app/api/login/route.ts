@@ -14,8 +14,8 @@ export const runtime = "nodejs";
 
 /**
  * POST /api/login
- * Verify email/password, stamp organizationId on the Firebase user,
- * and return a custom token whose ID token already includes organizationId.
+ * Verify email/password, stamp organization and role claims on the Firebase
+ * user, and return a custom token whose ID token includes both.
  */
 export async function POST(request: Request) {
   let body: unknown;
@@ -56,6 +56,7 @@ export async function POST(request: Request) {
     const customToken = await issueOrgCustomToken(
       firebaseUser.localId,
       session.organizationId,
+      [session.role.code],
     );
 
     return NextResponse.json({

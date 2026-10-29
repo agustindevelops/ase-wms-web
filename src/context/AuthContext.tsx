@@ -16,11 +16,16 @@ export type AuthContextValue = {
   user: User | null;
   /** Organization id from the verified ID token custom claim. */
   organizationId: string | null;
+  /** Role codes from the verified ID token custom claims. */
+  roles: string[];
+  hasRole: (role: string) => boolean;
 };
 
 export const AuthContext = createContext<AuthContextValue>({
   user: null,
   organizationId: null,
+  roles: [],
+  hasRole: () => false,
 });
 
 export const useAuthContext = () => useContext(AuthContext);
@@ -36,9 +41,18 @@ function organizationIdFromClaims(
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
 }
 
+function rolesFromClaims(claims: Record<string, unknown>): string[] {
+  const raw = claims.roles;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (role): role is string => typeof role === "string" && Boolean(role.trim()),
+  );
+}
+
 export function AuthContextProvider({ children }: AuthContextProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [roles, setRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -52,17 +66,51 @@ export function AuthContextProvider({ children }: AuthContextProviderProps) {
         if (!nextUser) {
           setUser(null);
           setOrganizationId(null);
+          setRoles([]);
           setLoading(false);
           return;
         }
 
         try {
-          const { claims } = await nextUser.getIdTokenResult();
-          setOrganizationId(
-            organizationIdFromClaims(claims as Record<string, unknown>),
+          let tokenResult = await nextUser.getIdTokenResult();
+          let nextRoles = rolesFromClaims(
+            tokenResult.claims as Record<string, unknown>,
           );
+
+          // Existing sessions predate the roles claim. Bootstrap it once; new
+          // logins already receive roles in their custom token.
+          if (nextRoles.length === 0) {
+            const response = await fetch("/api/me", {
+              headers: {
+                Authorization: `Bearer ${await nextUser.getIdToken()}`,
+              },
+            });
+            if (response.ok) {
+              const session = (await response.json()) as {
+                role?: { code?: string };
+                tokenRefreshRequired?: boolean;
+              };
+              if (session.tokenRefreshRequired) {
+                tokenResult = await nextUser.getIdTokenResult(true);
+              }
+              nextRoles = rolesFromClaims(
+                tokenResult.claims as Record<string, unknown>,
+              );
+              if (nextRoles.length === 0 && session.role?.code) {
+                nextRoles = [session.role.code];
+              }
+            }
+          }
+
+          setOrganizationId(
+            organizationIdFromClaims(
+              tokenResult.claims as Record<string, unknown>,
+            ),
+          );
+          setRoles(nextRoles);
         } catch {
           setOrganizationId(null);
+          setRoles([]);
         } finally {
           setUser((prev) => (prev?.uid === nextUser.uid ? prev : nextUser));
           setLoading(false);
@@ -74,8 +122,13 @@ export function AuthContextProvider({ children }: AuthContextProviderProps) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, organizationId }),
-    [user, organizationId],
+    () => ({
+      user,
+      organizationId,
+      roles,
+      hasRole: (role: string) => roles.includes(role),
+    }),
+    [user, organizationId, roles],
   );
 
   if (loading) {

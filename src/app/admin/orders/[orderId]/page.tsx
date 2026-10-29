@@ -35,10 +35,11 @@ const qtyInputClass =
   "w-20 rounded-lg border border-brown-200 bg-white px-2 py-1 text-brown-800";
 
 export default function OrderDetailPage() {
-  const { user } = useAuthContext();
+  const { user, hasRole } = useAuthContext();
   const modal = useModal();
   const router = useRouter();
   const userId = user?.uid;
+  const canDeleteOrder = hasRole("ADMIN");
   const { data: statuses = [], error: statusesError } = useOrderStatuses();
   const params = useParams<{ orderId: string }>();
   const orderId = params.orderId;
@@ -251,6 +252,7 @@ export default function OrderDetailPage() {
   };
 
   const requestOrderDeletion = () => {
+    if (!canDeleteOrder) return;
     modal.showModal({
       title: "Delete order?",
       content: (
@@ -625,21 +627,23 @@ export default function OrderDetailPage() {
         </div>
       </div>
 
-      <div className="mt-10 border-t border-brown-200 pt-8">
-        <h3 className="font-nickainley text-2xl text-coral">Delete order</h3>
-        <p className="mt-1 text-sm text-brown-600">
-          Permanently remove this order and release outstanding picked
-          inventory.
-        </p>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={requestOrderDeletion}
-          className="mt-4 rounded-full bg-peach-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-peach-600 disabled:opacity-60"
-        >
-          Delete order
-        </button>
-      </div>
+      {canDeleteOrder ? (
+        <div className="mt-10 border-t border-brown-200 pt-8">
+          <h3 className="font-nickainley text-2xl text-coral">Delete order</h3>
+          <p className="mt-1 text-sm text-brown-600">
+            Permanently remove this order and release outstanding picked
+            inventory.
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={requestOrderDeletion}
+            className="mt-4 rounded-full bg-peach-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-peach-600 disabled:opacity-60"
+          >
+            Delete order
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }
