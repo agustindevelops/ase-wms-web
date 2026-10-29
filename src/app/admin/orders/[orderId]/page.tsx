@@ -2,11 +2,12 @@
 
 import ItemSearch, { type ItemOption } from "@/components/ItemSearch";
 import { useAuthContext } from "@/context/AuthContext";
+import { useModal } from "@/context/ModalContext";
 import { wisFetch, wisJson } from "@/lib/api/wisFetch";
 import { useOrderStatuses } from "@/lib/query/lookups";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { formatCents, type PackageDetail } from "../../packages/packageTypes";
 import OrderInfoForm from "./OrderInfoForm";
@@ -35,6 +36,8 @@ const qtyInputClass =
 
 export default function OrderDetailPage() {
   const { user } = useAuthContext();
+  const modal = useModal();
+  const router = useRouter();
   const userId = user?.uid;
   const { data: statuses = [], error: statusesError } = useOrderStatuses();
   const params = useParams<{ orderId: string }>();
@@ -245,6 +248,35 @@ export default function OrderDetailPage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const requestOrderDeletion = () => {
+    modal.showModal({
+      title: "Delete order?",
+      content: (
+        <p>
+          Delete “{order?.name ?? "this order"}”? This permanently removes the
+          order and cannot be undone.
+        </p>
+      ),
+      confirmationLabel: "Delete order",
+      onConfirm: async () => {
+        setBusy(true);
+        setError(null);
+        try {
+          await authedJson(`/api/order/${orderId}`, { method: "DELETE" });
+          router.push("/admin/orders");
+          router.refresh();
+        } catch (cause) {
+          const message =
+            cause instanceof Error ? cause.message : "Could not delete order";
+          setError(message);
+          throw new Error(message);
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
   };
 
   if (!user) {
@@ -591,6 +623,22 @@ export default function OrderDetailPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="mt-10 border-t border-brown-200 pt-8">
+        <h3 className="font-nickainley text-2xl text-coral">Delete order</h3>
+        <p className="mt-1 text-sm text-brown-600">
+          Permanently remove this order and release outstanding picked
+          inventory.
+        </p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={requestOrderDeletion}
+          className="mt-4 rounded-full bg-peach-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-peach-600 disabled:opacity-60"
+        >
+          Delete order
+        </button>
       </div>
     </section>
   );
