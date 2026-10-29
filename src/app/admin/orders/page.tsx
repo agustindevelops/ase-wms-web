@@ -1,12 +1,13 @@
 "use client";
 
 import { useAuthContext } from "@/context/AuthContext";
+import { useModal } from "@/context/ModalContext";
 import { wisJson } from "@/lib/api/wisFetch";
 import {
   useOrderStatuses,
   type OrderStatusOption,
 } from "@/lib/query/lookups";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -29,6 +30,8 @@ function formatEventDate(value: string | null) {
 
 export default function OrdersPage() {
   const { user } = useAuthContext();
+  const modal = useModal();
+  const queryClient = useQueryClient();
   const userId = user?.uid;
   const { data: statuses = [], error: statusesError } = useOrderStatuses();
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
@@ -63,6 +66,25 @@ export default function OrdersPage() {
         ? current.filter((value) => value !== code)
         : [...current, code],
     );
+  };
+
+  const requestOrderDeletion = (order: OrderListItem) => {
+    modal.showModal({
+      title: "Delete order?",
+      content: (
+        <p>
+          Delete “{order.name}”? This permanently removes the order and cannot
+          be undone.
+        </p>
+      ),
+      confirmationLabel: "Delete order",
+      onConfirm: async () => {
+        await wisJson<{ deletedOrderId: string }>(`/api/order/${order.id}`, {
+          method: "DELETE",
+        });
+        await queryClient.invalidateQueries({ queryKey: ["orders"] });
+      },
+    });
   };
 
   if (!user) {
@@ -134,18 +156,19 @@ export default function OrdersPage() {
               <th className="px-4 py-3 font-medium">Package</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Items</th>
+              <th className="px-4 py-3 font-medium" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-4 py-6 text-brown-500" colSpan={6}>
+                <td className="px-4 py-6 text-brown-500" colSpan={7}>
                   Loading…
                 </td>
               </tr>
             ) : orders.length === 0 ? (
               <tr>
-                <td className="px-4 py-6 text-brown-500" colSpan={6}>
+                <td className="px-4 py-6 text-brown-500" colSpan={7}>
                   No orders yet.
                 </td>
               </tr>
@@ -176,6 +199,15 @@ export default function OrdersPage() {
                   </td>
                   <td className="px-4 py-3 text-brown-700">
                     {order._count.items}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => requestOrderDeletion(order)}
+                      className="font-medium text-peach-700 underline-offset-2 hover:underline"
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))
