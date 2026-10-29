@@ -1,10 +1,4 @@
 import {
-  calculateAtHomeExperienceQuote,
-  experienceLabel,
-  isOutsideServiceArea,
-  type AccessType,
-} from "@/lib/order/atHomeExperience";
-import {
   asNonNegativeInt,
   asOptionalEventDate,
   asOptionalString,
@@ -26,7 +20,8 @@ import type { PublicOrderInput } from "./types";
 
 /**
  * Customer-site booking body: facts only. Setup/pickup windows and the quote
- * are built here; any total sent by the browser is ignored.
+ * are built in intake from the selected package variant; any total sent by the
+ * browser is ignored.
  */
 export function parsePublicOrderInput(
   body: Record<string, unknown>,
@@ -39,7 +34,7 @@ export function parsePublicOrderInput(
   const address = parseAddress(body.address);
   const details = parseOrderDetails(body.details, { requireWindows: false });
   const clientTableDetails = parseClientFurniture(body.clientTableDetails);
-  const usesClientFurniture = clientTableDetails !== null;
+  const uploads = parseBookingPhotos(body.uploads);
 
   const schedule = buildSchedule({
     guestCount,
@@ -52,16 +47,10 @@ export function parsePublicOrderInput(
       "morningPickupTime",
     ),
   });
-  const quote = calculateAtHomeExperienceQuote({
-    guestCount,
-    usesClientFurniture,
-    accessType: details.accessType as AccessType,
-    isLateNightPickup: pickupOption === "LATE_NIGHT",
-    isOutsideServiceArea: isOutsideServiceArea(address),
-  });
 
   return {
     packageId: asRequiredString(body.packageId, "packageId"),
+    variantId: asRequiredString(body.variantId, "variantId"),
     contact: parseContact(body.contact),
     address,
     guestCount,
@@ -74,14 +63,13 @@ export function parsePublicOrderInput(
       asOptionalTime(eventEndTime, "eventEndTime"),
       "eventEndTime",
     ),
-    quote: quote.quotedTotalCents,
-    experienceLabel: `${experienceLabel(usesClientFurniture)} · ${guestCount} guests`,
+    pickupOption,
     details: {
       ...details,
       ...schedule,
       accessNotes: details.accessType === "SPECIAL" ? details.accessNotes : null,
     },
     clientTableDetails,
-    uploads: parseBookingPhotos(body.uploads, usesClientFurniture),
+    uploads,
   };
 }

@@ -1,9 +1,5 @@
 import type { PickupOption } from "./constants";
 
-export function experienceLabel(usesClientFurniture: boolean): string {
-  return usesClientFurniture ? "Intimate Styling" : "Intimate Celebration";
-}
-
 export function pickupLabel(option: PickupOption): string {
   switch (option) {
     case "SAME_DAY":

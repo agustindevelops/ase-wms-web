@@ -62,7 +62,7 @@ export async function POST(request: Request, context: RouteContext) {
     const session = await createOrderCheckoutSession({
       orderId: order.id,
       amountCents: order.quote,
-      productName: `${order.packageName} · ${input.experienceLabel}`,
+      productName: `${order.packageName} · ${order.experienceLabel}`,
       customerEmail: input.contact.email,
       ...bookingReturnUrls(siteOrigin, order.id, order.packageSlug),
     });

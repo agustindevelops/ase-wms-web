@@ -38,7 +38,8 @@ export async function GET(request: Request) {
  * POST /api/package
  * Create a package: name, slug (customer-site URL segment, unique per
  * organization; 409 PACKAGE_SLUG_TAKEN), markdown summary and description, basePriceCents,
- * items [{ itemId, quantity }], media [{ fileId } | { videoUrl }].
+ * items [{ itemId, quantity }], media [{ fileId }], variants [{ name, preview,
+ * description?, priceCents, forms[] }] (at least one style required).
  */
 export async function POST(request: Request) {
   const auth = await requireAdmin(request);

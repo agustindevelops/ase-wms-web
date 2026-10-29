@@ -22,7 +22,8 @@ type RouteContext = {
 /**
  * GET /api/public/{organizationId}/packages
  * Unauthenticated read for the customer site: packages with slug, markdown
- * summary and description, basePriceCents, media (eternal image and video URLs), and items.
+ * summary and description, basePriceCents, media (eternal image and video URLs),
+ * items, and style variants (name, preview, description, priceCents, forms).
  * The caller must know the organization id. Cached for PUBLIC_CACHE_TIMER
  * seconds; package edits in admin clear the cache.
  */

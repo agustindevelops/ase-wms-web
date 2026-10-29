@@ -28,7 +28,7 @@ export function asPickupOption(value: unknown): PickupOption {
   return value as PickupOption;
 }
 
-/** Present only when the customer supplies furniture; that presence drives pricing. */
+/** Optional client tables; requiredness is decided from the variant's forms. */
 export function parseClientFurniture(
   value: unknown,
 ): ClientTableDetailsInput | null {
@@ -40,26 +40,39 @@ export function parseClientFurniture(
   return details;
 }
 
-/**
- * Photos are only collected when the customer supplies their own tables and
- * chairs: at least one, all CLIENT_FURNITURE. Otherwise there must be none.
- */
-export function parseBookingPhotos(
-  value: unknown,
-  usesClientFurniture: boolean,
-): OrderUploadInput[] {
+/** Parses uploads; requiredness is decided from the variant's forms in intake. */
+export function parseBookingPhotos(value: unknown): OrderUploadInput[] {
   const uploads = parseUploads(value);
-  if (!usesClientFurniture) {
-    if (uploads.length > 0) {
-      badRequest("Photos are only accepted when you provide your own tables");
-    }
-    return [];
-  }
-  if (uploads.length === 0) {
-    badRequest("At least one photo of your tables is required");
-  }
-  if (uploads.some((upload) => upload.uploadType !== "CLIENT_FURNITURE")) {
+  if (
+    uploads.some((upload) => upload.uploadType !== "CLIENT_FURNITURE")
+  ) {
     badRequest("Photos must be classified as CLIENT_FURNITURE");
   }
   return uploads;
+}
+
+/**
+ * YOUR_TABLES requires table details and at least one photo. Variants without
+ * that form must send neither.
+ */
+export function assertYourTablesPayload(
+  requiresYourTables: boolean,
+  clientTableDetails: ClientTableDetailsInput | null,
+  uploads: OrderUploadInput[],
+): void {
+  if (requiresYourTables) {
+    if (!clientTableDetails) {
+      badRequest("Table details are required for this style");
+    }
+    if (uploads.length === 0) {
+      badRequest("At least one photo of your tables is required");
+    }
+    return;
+  }
+  if (clientTableDetails) {
+    badRequest("Table details are only accepted for styles that use your tables");
+  }
+  if (uploads.length > 0) {
+    badRequest("Photos are only accepted for styles that use your tables");
+  }
 }

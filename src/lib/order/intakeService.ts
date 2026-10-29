@@ -1,15 +1,22 @@
 import "server-only";
 
 import {
+  BOOKING_FORM_YOUR_TABLES,
   ORDER_STATUS_PAYMENT_PENDING,
   ORDER_STATUS_PAYMENT_PROCESSED,
 } from "@/lib/db/defaults";
 import { prisma } from "@/lib/db/prisma";
+import {
+  calculateAtHomeExperienceQuote,
+  isOutsideServiceArea,
+  type AccessType,
+} from "@/lib/order/atHomeExperience";
 import { OrderServiceError } from "@/lib/order/errors";
 import { assertEventDateOpen } from "@/lib/order/eventDatesBooked";
 import { formatTime } from "@/lib/order/orderFields";
 import { copyPackageItemsToOrder } from "@/lib/order/orderService";
 import type { PublicOrderInput } from "@/lib/order/publicOrder";
+import { assertYourTablesPayload } from "@/lib/order/publicOrder/parseHelpers";
 import { isCheckoutSessionPaid } from "@/lib/payment/stripeCheckout";
 
 export async function createPublicOrder(
@@ -28,6 +35,42 @@ export async function createPublicOrder(
   }
   await assertEventDateOpen(organizationId, input.eventDate);
 
+  const variant = await prisma.packageVariant.findFirst({
+    where: {
+      id: input.variantId,
+      packageId: input.packageId,
+      organizationId,
+    },
+    include: {
+      package: { select: { basePriceCents: true } },
+      forms: { include: { form: { select: { code: true } } } },
+    },
+  });
+  if (!variant) {
+    throw new OrderServiceError(
+      "VARIANT_NOT_FOUND",
+      "Style variant was not found for this package",
+      404,
+    );
+  }
+
+  const formCodes = variant.forms.map((row) => row.form.code);
+  const requiresYourTables = formCodes.includes(BOOKING_FORM_YOUR_TABLES);
+  assertYourTablesPayload(
+    requiresYourTables,
+    input.clientTableDetails,
+    input.uploads,
+  );
+
+  const quote = calculateAtHomeExperienceQuote({
+    guestCount: input.guestCount,
+    basePriceCents: variant.package.basePriceCents + variant.priceCents,
+    accessType: input.details.accessType as AccessType,
+    isLateNightPickup: input.pickupOption === "LATE_NIGHT",
+    isOutsideServiceArea: isOutsideServiceArea(input.address),
+  });
+  const experienceLabel = `${variant.name} · ${input.guestCount} guests`;
+
   return prisma.$transaction(async (tx) => {
     const contact = await tx.contact.create({
       data: { organizationId, ...input.contact },
@@ -45,10 +88,11 @@ export async function createPublicOrder(
         eventStartTime: input.eventStartTime,
         eventEndTime: input.eventEndTime,
         guestCount: input.guestCount,
-        quote: input.quote,
+        quote: quote.quotedTotalCents,
         statusId: status.id,
         contactId: contact.id,
         addressId: address.id,
+        packageVariantId: variant.id,
       },
     });
     await tx.orderDetails.create({
@@ -79,9 +123,10 @@ export async function createPublicOrder(
     return {
       id: order.id,
       status: ORDER_STATUS_PAYMENT_PENDING,
-      quote: input.quote,
+      quote: quote.quotedTotalCents,
       packageName: pkg.name,
       packageSlug: pkg.slug,
+      experienceLabel,
     };
   });
 }

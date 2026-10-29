@@ -2,22 +2,30 @@
 
 import ItemSearch, { type ItemOption } from "@/components/ItemSearch";
 import MarkdownEditor from "@/components/MarkdownEditor";
+import { useAuthContext } from "@/context/AuthContext";
+import { wisJson } from "@/lib/api/wisFetch";
 import {
   isReservedSlug,
   isValidSlug,
   PACKAGE_SLUG_MAX_LENGTH,
   slugify,
 } from "@/lib/package/slug";
+import { useQuery } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 import { fieldClass } from "../inventory/inventoryTypes";
 import PackageMediaList, {
   initialMediaLines,
   type MediaLine,
 } from "./PackageMediaList";
+import PackageVariantsEditor, {
+  initialVariantLines,
+  type VariantLine,
+} from "./PackageVariantsEditor";
 import {
   centsToInput,
   inputToCents,
   PACKAGE_SUMMARY_MAX_LENGTH,
+  type BookingFormOption,
   type PackageDetail,
   type PackagePayload,
 } from "./packageTypes";
@@ -39,6 +47,7 @@ export default function PackageForm({
   error,
   onSubmit,
 }: Props) {
+  const { user } = useAuthContext();
   const [name, setName] = useState(initial?.name ?? "");
   const [slug, setSlug] = useState(initial?.slug ?? "");
   // New packages follow the name until the slug is edited; existing URLs never change on their own.
@@ -58,9 +67,20 @@ export default function PackageForm({
   const [media, setMedia] = useState<MediaLine[]>(() =>
     initialMediaLines(initial?.media),
   );
+  const [variants, setVariants] = useState<VariantLine[]>(() =>
+    initialVariantLines(initial?.variants),
+  );
   const [pickItem, setPickItem] = useState<ItemOption | null>(null);
   const [pickQty, setPickQty] = useState("1");
   const [localError, setLocalError] = useState<string | null>(null);
+
+  const formsQuery = useQuery({
+    queryKey: ["booking-forms"],
+    queryFn: () =>
+      wisJson<{ forms: BookingFormOption[] }>("/api/lookup/booking-forms"),
+    enabled: Boolean(user),
+  });
+  const bookingForms = formsQuery.data?.forms ?? [];
 
   const addItem = () => {
     const item = pickItem;
@@ -122,6 +142,48 @@ export default function PackageForm({
       setLocalError(`"${slug}" is already used by a page on the website. Choose another URL slug.`);
       return;
     }
+    if (variants.length === 0) {
+      setLocalError("Add at least one style variant");
+      return;
+    }
+    const parsedVariants: Array<
+      | { error: string }
+      | {
+          value: {
+            id?: string;
+            name: string;
+            preview: string;
+            description: string | null;
+            priceCents: number;
+            forms: string[];
+          };
+        }
+    > = [];
+    for (const [index, line] of variants.entries()) {
+      const priceCents = inputToCents(line.price);
+      if (priceCents == null || Number.isNaN(priceCents)) {
+        setLocalError(`Style ${index + 1} needs a price like 650 or 650.00`);
+        return;
+      }
+      if (!line.name.trim()) {
+        setLocalError(`Style ${index + 1} needs a name`);
+        return;
+      }
+      if (!line.preview.trim()) {
+        setLocalError(`Style ${index + 1} needs a preview`);
+        return;
+      }
+      parsedVariants.push({
+        value: {
+          ...(line.id ? { id: line.id } : {}),
+          name: line.name.trim(),
+          preview: line.preview.trim(),
+          description: line.description.trim() ? line.description : null,
+          priceCents,
+          forms: line.forms,
+        },
+      });
+    }
     setLocalError(null);
     onSubmit({
       name,
@@ -131,6 +193,9 @@ export default function PackageForm({
       basePriceCents,
       items: parsedItems,
       media: media.flatMap((line) => (line.fileId ? [{ fileId: line.fileId }] : [])),
+      variants: parsedVariants.flatMap((row) =>
+        "value" in row ? [row.value] : [],
+      ),
     });
   };
 
@@ -242,6 +307,13 @@ export default function PackageForm({
       </div>
 
       <PackageMediaList lines={media} setLines={setMedia} disabled={busy} />
+
+      <PackageVariantsEditor
+        lines={variants}
+        setLines={setVariants}
+        forms={bookingForms}
+        disabled={busy}
+      />
 
       <div>
         <p className="mb-2 text-sm font-medium text-brown-700">Items included</p>

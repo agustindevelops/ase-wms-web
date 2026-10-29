@@ -8,6 +8,16 @@ export type PackageMedia = {
 
 export const PACKAGE_SUMMARY_MAX_LENGTH = 1024;
 
+export type PackageVariantDetail = {
+  id: string;
+  name: string;
+  preview: string;
+  description: string | null;
+  priceCents: number;
+  sortOrder: number;
+  forms: string[];
+};
+
 export type PackageDetail = {
   id: string;
   name: string;
@@ -17,6 +27,16 @@ export type PackageDetail = {
   basePriceCents: number;
   items: Array<{ id: string; itemId: string; name: string; quantity: number }>;
   media: PackageMedia[];
+  variants: PackageVariantDetail[];
+};
+
+export type PackageVariantPayload = {
+  id?: string;
+  name: string;
+  preview: string;
+  description: string | null;
+  priceCents: number;
+  forms: string[];
 };
 
 export type PackagePayload = {
@@ -27,6 +47,13 @@ export type PackagePayload = {
   basePriceCents: number;
   items: Array<{ itemId: string; quantity: number }>;
   media: Array<{ fileId: string }>;
+  variants: PackageVariantPayload[];
+};
+
+export type BookingFormOption = {
+  id: string;
+  code: string;
+  name: string;
 };
 
 export function formatCents(cents: number | null | undefined): string {

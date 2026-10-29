@@ -10,6 +10,7 @@ import {
   ANIAH_ADMIN_EMAIL,
   ANIAH_ORGANIZATION,
   ANIAH_WAREHOUSE_NAME,
+  BOOKING_FORMS,
   ITEM_CATEGORIES,
   LOCATION_UNIT_TYPES,
   ORDER_STATUSES,
@@ -86,6 +87,14 @@ async function main() {
       where: { code: status.code },
       create: status,
       update: { name: status.name },
+    });
+  }
+
+  for (const form of BOOKING_FORMS) {
+    await prisma.bookingForm.upsert({
+      where: { code: form.code },
+      create: form,
+      update: { name: form.name },
     });
   }
 

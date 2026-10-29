@@ -19,7 +19,7 @@ export const getPublicPackages = publicCached(
     return packages.map(toPublicPackage);
   },
   // Bump the version when the public package shape changes so stale entries aren't served.
-  ["public-packages", "v3"],
+  ["public-packages", "v4"],
   [PUBLIC_PACKAGES_TAG],
 );
 

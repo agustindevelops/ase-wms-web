@@ -3,8 +3,8 @@ import { AtHomeExperienceError } from "./errors";
 
 export type AtHomeExperienceQuoteInput = {
   guestCount: number;
-  /** Persisted as the presence of ClientTableDetails, not a column. */
-  usesClientFurniture: boolean;
+  /** Package.basePriceCents + PackageVariant.priceCents. */
+  basePriceCents: number;
   accessType: AccessType;
   isLateNightPickup: boolean;
   isOutsideServiceArea?: boolean;
@@ -37,9 +37,12 @@ export function calculateAtHomeExperienceQuote(
     );
   }
 
-  const basePriceCents = input.usesClientFurniture
-    ? pricing.clientFurnitureBaseCents
-    : pricing.ourFurnitureBaseCents;
+  if (!Number.isInteger(input.basePriceCents) || input.basePriceCents < 0) {
+    throw new AtHomeExperienceError(
+      "Style price must be an integer of 0 or more.",
+    );
+  }
+
   const guestAdjustmentCents =
     (input.guestCount - pricing.baseGuestCount) * pricing.additionalGuestCents;
   const accessFeeCents =
@@ -52,13 +55,13 @@ export function calculateAtHomeExperienceQuote(
     : 0;
 
   return {
-    basePriceCents,
+    basePriceCents: input.basePriceCents,
     guestAdjustmentCents,
     accessFeeCents,
     pickupFeeCents,
     travelFeeCents,
     quotedTotalCents:
-      basePriceCents +
+      input.basePriceCents +
       guestAdjustmentCents +
       accessFeeCents +
       pickupFeeCents +

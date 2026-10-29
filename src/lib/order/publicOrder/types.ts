@@ -1,3 +1,4 @@
+import type { PickupOption } from "@/lib/order/atHomeExperience";
 import type {
   AddressInput,
   ClientTableDetailsInput,
@@ -8,16 +9,15 @@ import type {
 
 export type PublicOrderInput = {
   packageId: string;
+  variantId: string;
   contact: ContactInput;
   address: AddressInput;
   guestCount: number;
   eventDate: Date;
   eventStartTime: Date;
   eventEndTime: Date;
-  /** Cents, calculated on the server from the submitted facts. */
-  quote: number;
-  experienceLabel: string;
   details: OrderDetailsInput;
   clientTableDetails: ClientTableDetailsInput | null;
   uploads: OrderUploadInput[];
+  pickupOption: PickupOption;
 };

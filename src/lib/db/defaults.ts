@@ -153,6 +153,21 @@ export const ORDER_STATUSES = [
   },
 ] as const;
 
+/** BookingForm.code — screens a package variant can require. */
+export const BOOKING_FORM_YOUR_TABLES = "YOUR_TABLES";
+
+export const BOOKING_FORM_IDS = {
+  YOUR_TABLES: "bf_your_tables",
+} as const;
+
+export const BOOKING_FORMS = [
+  {
+    id: BOOKING_FORM_IDS.YOUR_TABLES,
+    code: BOOKING_FORM_YOUR_TABLES,
+    name: "Your tables",
+  },
+] as const;
+
 /** OrderDetails.accessType values (not a DB lookup table). */
 export const ORDER_ACCESS_TYPES = [
   { code: "STANDARD", name: "Standard" },

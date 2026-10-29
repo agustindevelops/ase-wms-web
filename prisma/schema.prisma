@@ -40,6 +40,8 @@ model Organization {
   packages             Package[]
   packageItems         PackageItem[]
   packageFiles         PackageFile[]
+  packageVariants      PackageVariant[]
+  packageVariantForms  PackageVariantForm[]
   contacts             Contact[]
   orderDetails         OrderDetails[]
   clientTableDetails   ClientTableDetails[]
@@ -310,14 +312,70 @@ model Package {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization  @relation(fields: [organizationId], references: [id])
+  organization Organization      @relation(fields: [organizationId], references: [id])
   items        PackageItem[]
   files        PackageFile[]
+  variants     PackageVariant[]
   orders       EventOrder[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, slug])
   @@index([organizationId])
+}
+
+/// Style choice on a package: name, card preview, optional markdown, and price.
+model PackageVariant {
+  id             String   @id @default(cuid())
+  organizationId String
+  packageId      String
+  name           String
+  /// Short plain text shown on the style card under the name.
+  preview        String   @db.VarChar(512)
+  /// Markdown appended to the package description when this style is selected.
+  description    String?  @db.Text
+  /// Cents. Added to Package.basePriceCents before guest, access, pickup, or travel fees.
+  priceCents     Int
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  package      Package              @relation(fields: [packageId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  forms        PackageVariantForm[]
+  orders       EventOrder[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId])
+  @@index([packageId])
+}
+
+/// Lookup of booking screens a variant can require. Seeded codes; customer site
+/// switches on code (unknown codes are ignored until a screen exists).
+model BookingForm {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+
+  variantForms PackageVariantForm[]
+}
+
+/// Forms attached to a package variant (many-to-many).
+model PackageVariantForm {
+  id             String   @id @default(cuid())
+  organizationId String
+  variantId      String
+  formId         String
+  createdAt      DateTime @default(now())
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  variant      PackageVariant @relation(fields: [variantId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  form         BookingForm    @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@unique([id, organizationId])
+  @@unique([variantId, formId])
+  @@index([organizationId])
+  @@index([variantId])
+  @@index([formId])
 }
 
 /// Catalog item and quantity included in a package.
@@ -389,6 +447,8 @@ model EventOrder {
   addressId               String?   @unique
   /// Reference only. Business rules use OrderItem rows.
   packageId               String?
+  /// Style chosen at booking. Quote is a snapshot; this keeps which style was booked.
+  packageVariantId        String?
   stripeCheckoutSessionId String?   @unique
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
@@ -399,6 +459,7 @@ model EventOrder {
   contact            Contact?            @relation(fields: [contactId, organizationId], references: [id, organizationId], onDelete: Restrict)
   address            Address?            @relation(fields: [addressId, organizationId], references: [id, organizationId], onDelete: Restrict)
   package            Package?            @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  packageVariant     PackageVariant?     @relation(fields: [packageVariantId], references: [id], onDelete: SetNull)
   items              OrderItem[]
   details            OrderDetails?
   clientTableDetails ClientTableDetails?
@@ -411,6 +472,7 @@ model EventOrder {
   @@index([statusId])
   @@index([createdByUserId])
   @@index([packageId])
+  @@index([packageVariantId])
 }
 
 /// Customer contact for a single order. Not a shared directory.

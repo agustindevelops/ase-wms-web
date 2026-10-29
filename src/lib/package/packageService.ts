@@ -36,6 +36,15 @@ const packageInclude = {
     },
     orderBy: { sortOrder: "asc" as const },
   },
+  variants: {
+    include: {
+      forms: {
+        include: { form: { select: { code: true } } },
+        orderBy: { createdAt: "asc" as const },
+      },
+    },
+    orderBy: { sortOrder: "asc" as const },
+  },
 } satisfies Prisma.PackageInclude;
 
 type PackageRaw = Prisma.PackageGetPayload<{ include: typeof packageInclude }>;
@@ -46,6 +55,16 @@ export type PackageMedia = {
   type: "image" | "video";
   contentType: string;
   url: string | null;
+};
+
+export type PackageVariantRecord = {
+  id: string;
+  name: string;
+  preview: string;
+  description: string | null;
+  priceCents: number;
+  sortOrder: number;
+  forms: string[];
 };
 
 export type PackageRecord = {
@@ -59,9 +78,22 @@ export type PackageRecord = {
   updatedAt: Date;
   items: Array<{ id: string; itemId: string; name: string; quantity: number }>;
   media: PackageMedia[];
+  variants: PackageVariantRecord[];
 };
 
 export const PACKAGE_SUMMARY_MAX_LENGTH = 1024;
+export const PACKAGE_VARIANT_PREVIEW_MAX_LENGTH = 512;
+
+export type PackageVariantInput = {
+  /** Existing id when updating; omitted for a new variant. */
+  id?: string;
+  name: string;
+  preview: string;
+  description: string | null;
+  priceCents: number;
+  /** BookingForm.code values attached to this variant. */
+  forms: string[];
+};
 
 export type PackageInput = {
   name: string;
@@ -74,6 +106,8 @@ export type PackageInput = {
   items: Array<{ itemId: string; quantity: number }>;
   /** Uploaded image/video file ids in display order. */
   media: Array<{ fileId: string }>;
+  /** Style options in display order. priceCents is added to the package base. */
+  variants: PackageVariantInput[];
 };
 
 function badRequest(message: string): never {
@@ -173,6 +207,69 @@ export function parsePackageInput(body: Record<string, unknown>): PackageInput {
     },
   );
 
+  if (body.variants !== undefined && !Array.isArray(body.variants)) {
+    badRequest("variants must be an array");
+  }
+  const variantRows = (body.variants as unknown[] | undefined) ?? [];
+  if (variantRows.length === 0) {
+    badRequest("At least one style variant is required");
+  }
+  const variants = variantRows.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      badRequest(`variants[${index}] must be an object`);
+    }
+    const row = entry as Record<string, unknown>;
+    if (typeof row.name !== "string" || !row.name.trim()) {
+      badRequest(`variants[${index}].name is required`);
+    }
+    if (typeof row.preview !== "string" || !row.preview.trim()) {
+      badRequest(`variants[${index}].preview is required`);
+    }
+    const preview = row.preview.trim();
+    if (preview.length > PACKAGE_VARIANT_PREVIEW_MAX_LENGTH) {
+      badRequest(
+        `variants[${index}].preview must be ${PACKAGE_VARIANT_PREVIEW_MAX_LENGTH} characters or fewer`,
+      );
+    }
+    if (
+      row.description !== undefined &&
+      row.description !== null &&
+      typeof row.description !== "string"
+    ) {
+      badRequest(`variants[${index}].description must be a markdown string`);
+    }
+    if (row.forms !== undefined && !Array.isArray(row.forms)) {
+      badRequest(`variants[${index}].forms must be an array`);
+    }
+    const forms = ((row.forms as unknown[] | undefined) ?? []).map(
+      (code, formIndex) => {
+        if (typeof code !== "string" || !code.trim()) {
+          badRequest(`variants[${index}].forms[${formIndex}] must be a form code`);
+        }
+        return code.trim();
+      },
+    );
+    if (new Set(forms).size !== forms.length) {
+      badRequest(`variants[${index}].forms must not contain duplicates`);
+    }
+    const id =
+      typeof row.id === "string" && row.id.trim() ? row.id.trim() : undefined;
+    return {
+      id,
+      name: row.name.trim(),
+      preview,
+      description:
+        typeof row.description === "string" && row.description.trim()
+          ? row.description
+          : null,
+      priceCents: asNonNegativeInt(
+        row.priceCents ?? 0,
+        `variants[${index}].priceCents`,
+      ),
+      forms,
+    };
+  });
+
   return {
     name: body.name.trim(),
     slug,
@@ -184,6 +281,7 @@ export function parsePackageInput(body: Record<string, unknown>): PackageInput {
     basePriceCents: asNonNegativeInt(body.basePriceCents ?? 0, "basePriceCents"),
     items,
     media,
+    variants,
   };
 }
 
@@ -246,6 +344,15 @@ async function mapPackage(
       quantity: row.quantity,
     })),
     media,
+    variants: pkg.variants.map((row) => ({
+      id: row.id,
+      name: row.name,
+      preview: row.preview,
+      description: row.description,
+      priceCents: row.priceCents,
+      sortOrder: row.sortOrder,
+      forms: row.forms.map((entry) => entry.form.code),
+    })),
   };
 }
 
@@ -330,37 +437,71 @@ async function assertPackageRefs(
   if (new Set(fileIds).size !== fileIds.length) {
     badRequest("Each file can only appear once in a package");
   }
-  if (fileIds.length === 0) {
-    return;
-  }
-  const files = await tx.file.findMany({
-    where: { id: { in: fileIds }, organizationId },
-    include: { packageFile: { select: { packageId: true } } },
-  });
-  if (files.length !== fileIds.length) {
-    throw new PackageServiceError(
-      "FILE_NOT_FOUND",
-      "One or more media files were not found",
-      404,
-    );
-  }
-  for (const file of files) {
-    if (file.status !== "uploaded") {
+  if (fileIds.length > 0) {
+    const files = await tx.file.findMany({
+      where: { id: { in: fileIds }, organizationId },
+      include: { packageFile: { select: { packageId: true } } },
+    });
+    if (files.length !== fileIds.length) {
       throw new PackageServiceError(
-        "FILE_NOT_VERIFIED",
-        "Media only attaches after verified file upload",
+        "FILE_NOT_FOUND",
+        "One or more media files were not found",
+        404,
       );
     }
-    if (
-      file.itemId ||
-      (file.packageFile && file.packageFile.packageId !== packageId)
-    ) {
+    for (const file of files) {
+      if (file.status !== "uploaded") {
+        throw new PackageServiceError(
+          "FILE_NOT_VERIFIED",
+          "Media only attaches after verified file upload",
+        );
+      }
+      if (
+        file.itemId ||
+        (file.packageFile && file.packageFile.packageId !== packageId)
+      ) {
+        throw new PackageServiceError(
+          "FILE_ALREADY_ATTACHED",
+          "File is already attached to an item or another package",
+          409,
+        );
+      }
+    }
+  }
+
+  const formCodes = [...new Set(input.variants.flatMap((row) => row.forms))];
+  if (formCodes.length > 0) {
+    const found = await tx.bookingForm.count({
+      where: { code: { in: formCodes } },
+    });
+    if (found !== formCodes.length) {
       throw new PackageServiceError(
-        "FILE_ALREADY_ATTACHED",
-        "File is already attached to an item or another package",
-        409,
+        "BOOKING_FORM_NOT_FOUND",
+        "One or more booking forms were not found",
+        404,
       );
     }
+  }
+
+  const variantIds = input.variants
+    .map((row) => row.id)
+    .filter((id): id is string => Boolean(id));
+  if (new Set(variantIds).size !== variantIds.length) {
+    badRequest("Each variant id can only appear once");
+  }
+  if (variantIds.length > 0 && packageId) {
+    const owned = await tx.packageVariant.count({
+      where: { id: { in: variantIds }, packageId, organizationId },
+    });
+    if (owned !== variantIds.length) {
+      throw new PackageServiceError(
+        "VARIANT_NOT_FOUND",
+        "One or more variants do not belong to this package",
+        404,
+      );
+    }
+  } else if (variantIds.length > 0) {
+    badRequest("New packages cannot reuse existing variant ids");
   }
 }
 
@@ -392,6 +533,79 @@ async function writePackageChildren(
         fileId: row.fileId,
       })),
     });
+  }
+
+  const keepIds = input.variants
+    .map((row) => row.id)
+    .filter((id): id is string => Boolean(id));
+  await tx.packageVariant.deleteMany({
+    where: {
+      packageId,
+      organizationId,
+      ...(keepIds.length > 0 ? { id: { notIn: keepIds } } : {}),
+    },
+  });
+
+  const formRows = await tx.bookingForm.findMany({
+    where: {
+      code: { in: [...new Set(input.variants.flatMap((row) => row.forms))] },
+    },
+    select: { id: true, code: true },
+  });
+  const formIdByCode = new Map(formRows.map((row) => [row.code, row.id]));
+
+  for (const [index, row] of input.variants.entries()) {
+    const formIds = row.forms.map((code) => {
+      const formId = formIdByCode.get(code);
+      if (!formId) {
+        throw new PackageServiceError(
+          "BOOKING_FORM_NOT_FOUND",
+          `Booking form "${code}" was not found`,
+          404,
+        );
+      }
+      return formId;
+    });
+
+    let variantId = row.id;
+    if (variantId) {
+      await tx.packageVariant.update({
+        where: { id: variantId },
+        data: {
+          name: row.name,
+          preview: row.preview,
+          description: row.description,
+          priceCents: row.priceCents,
+          sortOrder: index,
+        },
+      });
+      await tx.packageVariantForm.deleteMany({
+        where: { variantId, organizationId },
+      });
+    } else {
+      const created = await tx.packageVariant.create({
+        data: {
+          organizationId,
+          packageId,
+          name: row.name,
+          preview: row.preview,
+          description: row.description,
+          priceCents: row.priceCents,
+          sortOrder: index,
+        },
+      });
+      variantId = created.id;
+    }
+
+    if (formIds.length > 0) {
+      await tx.packageVariantForm.createMany({
+        data: formIds.map((formId) => ({
+          organizationId,
+          variantId,
+          formId,
+        })),
+      });
+    }
   }
 }
 
@@ -492,5 +706,35 @@ export function toPublicPackage(pkg: PackageRecord) {
       name: row.name,
       quantity: row.quantity,
     })),
+    variants: pkg.variants.map((row) => ({
+      id: row.id,
+      name: row.name,
+      preview: row.preview,
+      description: row.description,
+      priceCents: row.priceCents,
+      forms: row.forms,
+    })),
   };
+}
+
+export async function listBookingForms() {
+  const rows = await prisma.bookingForm.findMany({
+    select: { id: true, code: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  return rows;
+}
+
+/** Variant for a package, or null when it does not belong to that package. */
+export async function getPackageVariantForPackage(
+  organizationId: string,
+  packageId: string,
+  variantId: string,
+) {
+  return prisma.packageVariant.findFirst({
+    where: { id: variantId, packageId, organizationId },
+    include: {
+      forms: { include: { form: { select: { code: true } } } },
+    },
+  });
 }

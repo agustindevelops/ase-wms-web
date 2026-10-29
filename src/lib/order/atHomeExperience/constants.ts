@@ -1,7 +1,4 @@
 export const AT_HOME_EXPERIENCE_PRICING = {
-  ourFurnitureBaseCents: 65_000,
-  clientFurnitureBaseCents: 45_000,
-
   baseGuestCount: 6,
   maxGuestCount: 10,
   additionalGuestCents: 2_500,
