@@ -1,81 +1,162 @@
 # ASE WIS Web
 
-Web dashboard for the **Aniah Social Events Warehouse Inventory System (ASE WIS)** — the computer-side half of a two-interface inventory system.
+Admin dashboard and HTTP API for the **Aniah Social Events Warehouse Inventory System (ASE WIS)**. This is the system of record: PostgreSQL, Stripe checkout, and the routes both sibling apps call.
+
+| Piece | Repo | Role |
+| --- | --- | --- |
+| Customer site | [`aniah-social-events`](https://github.com/agustindevelops/aniah-social-events) | Marketing and guest booking at [aniahsocialevents.com](https://www.aniahsocialevents.com) |
+| WIS admin + API | [`ase-wms-web`](https://github.com/agustindevelops/ase-wms-web) (this project) | Catalog, packages, orders, Stripe, files |
+| WIS phone app | [`ase-wms-app`](https://github.com/agustindevelops/ase-wms-app) | Floor cataloging, QR labels, pickup and return |
+
+```mermaid
+flowchart LR
+  site[aniah-social-events]
+  admin[ase-wms-web]
+  phone[ase-wms-app]
+  db[(PostgreSQL)]
+  r2[Cloudflare R2]
+  stripe[Stripe]
+  firebase[Firebase Auth]
+
+  site -->|public API CORS| admin
+  phone -->|Bearer ID token| admin
+  admin --> db
+  admin --> r2
+  admin --> stripe
+  admin --> firebase
+  phone --> firebase
+```
+
+The marketing site never opens Postgres. The phone app never calls the marketing site. Both go through this Next.js server.
 
 **Scope:** [Project Scope Statement - ASE WIS](https://agustindevelops.atlassian.net/wiki/spaces/ASE/pages/161775617/Project+Scope+Statement+-+ASE+WMS)
 
-## Purpose
+## What this app is for
 
-ASE WIS gives Aniah Social Events a single place to track what inventory the business owns, how many units are available, where each item is stored, what is assigned to upcoming events, and what was picked up or returned (including shortages and damage).
+An admin signs in on a computer to finish catalog records, publish packages the customer site sells, and review event orders. Pickup, return, location scanning, and NIIMBOT label printing stay on the phone.
 
-This repo (`ase-wms-web`) is the **web dashboard**: detailed inventory administration, search/filter, and completing item records that are awkward to edit on a phone. It shares the same inventory data as the mobile warehouse app (`ase-wms-app`), which is optimized for on-site cataloging, pulling, and returning.
+MVP role is **Admin** (business owner). Staff-limited pick/return accounts are deferred.
 
-Together they establish the inventory foundation needed for a later customer-facing rental storefront (out of scope for the initial MVP).
+## Tour
 
-## Role in the system
+### Landing
 
-| Interface | Repo | Primary use |
-| --- | --- | --- |
-| Web dashboard | `ase-wms-web` (this project) | Full catalog, detailed item fields (description, pricing, materials, purchase links), search/filter, admin workflows from a computer |
-| Mobile warehouse app | `ase-wms-app` | Fast cataloging (photo, name, qty, location), pull lists, scan pick/return on the warehouse floor |
+![WIS Admin landing with Sign In](docs/screenshots/landing.png)
 
-Per the scope statement, **Admin** (business owner) is the active role for MVP. Staff-limited access is deferred until there are employees who need pick/return-only permissions.
+Unsigned visitors see the branded portal. **Sign In** goes to `/signin`. Public signup is off (`allowPublicSignup = false`); accounts are pre-provisioned.
 
-### Web dashboard responsibilities (from scope)
+### Sign in
 
-- View and manage the full inventory catalog
-- Complete or update detailed item information after mobile cataloging
-- Search and filter inventory
-- Manage prices, descriptions, categories, and purchase/replacement links
-- Support pick/return and missing/broken quantity review (shared data with the mobile app)
-- Event schedule / booking views may move to phase 2
+![WIS Admin sign-in form](docs/screenshots/signin.png)
 
-### Explicitly out of MVP scope
+Email and password go to `POST /api/login`, which checks Firebase, loads the Prisma membership, and returns a custom token. The client then calls `signInWithCustomToken`. The same Firebase project is used by [`ase-wms-app`](https://github.com/agustindevelops/ase-wms-app).
 
-Customer storefront, accounts, payments, delivery routing, advanced analytics, accounting integrations, and polished visual design are excluded from the 24-hour MVP. See the [scope statement](https://agustindevelops.atlassian.net/wiki/spaces/ASE/pages/161775617/Project+Scope+Statement+-+ASE+WMS) for the full exclusion list.
+### Dashboard
+
+![Admin dashboard with inventory totals and shortcuts](docs/screenshots/dashboard.png)
+
+`/admin` shows warehouse totals, upcoming events, issues, last-24-hour activity, and shortcuts into Orders, Packages, Inventory, and Reports.
+
+### Inventory
+
+![Inventory list with category filters](docs/screenshots/inventory.png)
+
+Search, warehouse, category, location, and archive filters. Staff typically photograph a new item on the phone; this screen is where descriptions, prices, materials, and purchase links get finished.
+
+### Packages
+
+![Packages list with The Forest Fantasy](docs/screenshots/packages.png)
+
+A package is a grouped offering with a customer-site slug (`/intimate-celebrations/{slug}`). Creating or editing a package here is what the marketing site lists. Ordering a package copies its items onto the event order for the warehouse to pick.
+
+## How it connects
+
+| Client | How it talks to this repo |
+| --- | --- |
+| [`aniah-social-events`](https://github.com/agustindevelops/aniah-social-events) | Unauthenticated `GET`/`POST` under `/api/public/{organizationId}/…`. Env: `NEXT_PUBLIC_ASE_ADMIN_URL`, `NEXT_PUBLIC_ASE_ADMIN_ORGANIZATION_ID`. CORS: `PUBLIC_API_ALLOWED_ORIGINS`. |
+| [`ase-wms-app`](https://github.com/agustindevelops/ase-wms-app) | `Authorization: Bearer <Firebase ID token>` on `/api/…`. Env: `EXPO_PUBLIC_ASE_WIS_API_URL` (include `/api`, no trailing slash). |
+
+### Public customer API
+
+No Firebase token. The caller must pass a real organization id. Pricing is recalculated on the server (`src/lib/order/atHomeExperience/`, kept identical to the copy in the customer site). Checkout needs `STRIPE_SECRET_KEY`; `POST /api/stripe/webhook` moves `PAYMENT_PENDING` → `PAYMENT_PROCESSED`.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /api/public/{organizationId}/packages` | Package catalog |
+| `GET /api/public/{organizationId}/packages/{slug}` | One package |
+| `GET /api/public/{organizationId}/event-dates-booked?month=YYYY-MM` | Booked days; `PAYMENT_PENDING` does not hold a day |
+| `POST /api/public/{organizationId}/orders` | Create order + Stripe Checkout URL |
+| `GET /api/public/{organizationId}/orders/checkout/{sessionId}` | Confirmation after payment |
+| `POST /api/public/{organizationId}/uploads` | Booking photo |
+| `GET /api/public/{organizationId}/uploads/{name}` | Signed photo redirect |
+| `GET /api/public/{organizationId}/files/{fileId}` | Package media |
+
+Stripe success returns the guest to `{marketing site}/intimate-celebrations/booked`.
+
+### Authenticated phone / admin API
+
+`wisFetch` / `aseApiFetch` attach the Firebase ID token. `requirePrismaUser` loads `User` + `OrganizationMembership`. `organizationId` comes from the verified custom claim. Warehouse routes also require that the path warehouse belongs to that organization.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /api/me` | User, organization, role, warehouses |
+| `GET /api/dashboard/summary` | Home metrics |
+| `GET /api/item` | Catalog |
+| `POST /api/img/upload` | Presigned R2 PUT |
+| `GET/POST /api/order/pickup` and `/api/order/return` | Today’s floor lists |
+| `GET /api/warehouse/{id}` | Location tree |
+
+### Exterior services
+
+| Service | Role |
+| --- | --- |
+| PostgreSQL (Prisma 7) | All app data |
+| Firebase Auth | Web + phone sign-in; Admin SDK verifies Bearer tokens |
+| Cloudflare R2 | Inventory, package, and booking photos |
+| Stripe | Checkout Sessions + webhook |
 
 ## Stack
 
 | Layer | Technology |
 | --- | --- |
-| Framework | Next.js 15 (App Router) |
-| UI | React 19 + Tailwind CSS 4 |
+| Framework | Next.js 15 (App Router), React 19, Tailwind CSS 4 |
 | Auth | Firebase Auth (client) + Firebase Admin (Bearer verify on API) |
 | Database | Prisma 7 + PostgreSQL (server-only) |
-| Mobile companion | `ase-wms-app` (Expo barcode / label printing) |
+| Files | Cloudflare R2 via the S3 SDK |
+| Payments | Stripe Checkout + webhook |
 
-Scaffolded from the [Next.js Firebase starter](https://github.com/milliorn/nextjs-firebase-starter); branding aligned with [aniahsocialevents.com](https://aniahsocialevents.com/).
+Branding (cream, coral, Nickainley, logos) follows [`aniah-social-events`](https://github.com/agustindevelops/aniah-social-events).
 
 ## Getting started
 
 ```bash
-cp .env.template .env.local
-# fill DATABASE_URL, NEXT_PUBLIC_FIREBASE_*, FIREBASE_ADMIN_*
+cp .env.example .env.local
+# fill DATABASE_URL, NEXT_PUBLIC_FIREBASE_*, FIREBASE_ADMIN_CREDENTIALS_JSON
 npm install
 npx prisma migrate dev --name init_user
+npm run db:seed
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Unauthenticated users land on the branded admin portal; signed-in users go to `/admin`.
-
-## Firebase Bearer + Prisma (ASE-9)
-
-Use the **same Firebase project** for this web admin and `ase-wms-app`. No NextAuth; APIs expect `Authorization: Bearer <Firebase ID token>`.
+Open [http://localhost:3000](http://localhost:3000). The marketing site also defaults to 3000; run one of them on another port when both are local.
 
 ### Env checklist
 
-See [`.env.template`](./.env.template). You need:
+See [`.env.example`](./.env.example). You need:
 
 | Variable | Where to get it |
 | --- | --- |
-| `DATABASE_URL` | Prisma Console → Connect → **direct TCP** `postgres://…` (not `prisma+postgres://`) |
+| `DATABASE_URL` | Prisma Console → Connect → **direct TCP** `postgres://…` |
 | `NEXT_PUBLIC_FIREBASE_*` | Firebase Console → Project settings → Web app |
-| `FIREBASE_ADMIN_PROJECT_ID` / `CLIENT_EMAIL` / `PRIVATE_KEY` | Firebase Console → Service accounts → Generate private key |
-| `S3_API_URL` | Cloudflare R2 S3 API URL: `https://<accountId>.r2.cloudflarestorage.com/<bucket>` |
-| `CLOUDFLARE_ACCESS_KEY_ID` | Cloudflare → R2 → Manage API Tokens → Access Key ID |
-| `CLOUDFLARE_ACCESS_KEY` | Same token screen → Secret Access Key (shown once) |
+| `FIREBASE_ADMIN_CREDENTIALS_JSON` | Firebase Console → Service accounts → Generate private key (full JSON, one line) |
+| `S3_API_URL` | `https://<accountId>.r2.cloudflarestorage.com/<bucket>` |
+| `CLOUDFLARE_ACCESS_KEY_ID` / `CLOUDFLARE_ACCESS_KEY` | Cloudflare → R2 → Manage API Tokens |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Stripe Dashboard (public booking) |
+| `PUBLIC_API_ALLOWED_ORIGINS` | Marketing site origins allowed to call `/api/public` |
 
-`DATABASE_URL`, `FIREBASE_ADMIN_*`, and Cloudflare R2 keys are **server-only** — never prefix them with `NEXT_PUBLIC_`.
+`DATABASE_URL`, `FIREBASE_ADMIN_*`, R2 keys, and Stripe secrets are **server-only** — never prefix them with `NEXT_PUBLIC_`.
+
+Client apps never get R2 keys; they receive a short-lived `upload_url` from `POST /api/img/upload`.
 
 ### Pattern for secured API routes
 
@@ -91,67 +172,9 @@ export async function GET(request: Request) {
   const auth = await requireFirebaseUser(request);
   if (isAuthFailure(auth)) return auth.response; // 401, no DB
 
-  // Only after verify:
-  const rows = await prisma.$queryRaw`SELECT 1`;
-  // Or: const { user, organization, role } = await requirePrismaUser(request);
+  const { user, organization, role } = await requirePrismaUser(request);
 }
 ```
-
-`requirePrismaUser` loads the Prisma `User` and `OrganizationMembership` after Bearer verification. `organizationId` comes from the verified Firebase custom claim (stamped from membership). Authorization is organization-scoped. Warehouse routes additionally require that the path warehouse belongs to that organization.
-
-Client helpers: `wisFetch("/api/…")` and `aseApiFetch("/api/…")` hit same-origin `/api/*`.
-
-### Smoke endpoints
-
-| Route | Behavior |
-| --- | --- |
-| `GET /api/health` | Bearer required → `SELECT 1` |
-| `GET /api/me` | Bearer required → user, organization, role, warehouses |
-| `POST /api/img/upload` | Bearer → create `File` + presigned PUT (`{userId}/inventory/{fileId}`) |
-| `POST /api/img/verify` | Bearer → HEAD/magic checks → `uploaded` + File row (fail deletes object+row) |
-| `GET /api/test/img?file_id=` | Bearer → owner-scoped File + signed/public read URL |
-| `DELETE /api/img/{id}` | Bearer → owner-scoped delete |
-
-### Public customer API
-
-These routes do not require a Firebase Bearer token. The caller must supply the organization id. They live under `/api/public` so a mistyped path such as `/api/dshboard` stays a 404 and is not treated as an organization id. CORS is limited to `PUBLIC_API_ALLOWED_ORIGINS`.
-
-| Route | Behavior |
-| --- | --- |
-| `GET /api/public/{organizationId}/packages` | Packages for that organization (slug, markdown description, price, media, items) |
-| `GET /api/public/{organizationId}/packages/{slug}` | One package by its customer-site URL slug → `{ package }`; 404 if unknown |
-| `GET /api/public/{organizationId}/event-dates-booked?month=YYYY-MM` | Calendar data: `earliestBookableDate` (first day a guest may book, today + 3 days in America/Chicago) and `bookedDates` in that month. `month` defaults to the current month. Orders still in `PAYMENT_PENDING` do not hold a day |
-| `POST /api/public/{organizationId}/orders` | Dinner-experience booking: builds setup/pickup windows and the quote server-side, rejects dates before `earliestBookableDate` or already booked, creates a `PAYMENT_PENDING` order, returns a Stripe Checkout URL. Photos (`CLIENT_FURNITURE`) are required when the client provides their own tables and rejected otherwise |
-| `POST /api/public/{organizationId}/uploads` | Booking photo upload (multipart `file`, JPEG/PNG/WebP) → `{ fileUrl }` |
-| `GET /api/public/{organizationId}/uploads/{name}` | Redirects to a short-lived signed read of a booking photo |
-
-An unknown organization id returns 404.
-
-`GET /packages` is served from the Next data cache for `PUBLIC_CACHE_TIMER` seconds (default 300, max 10800, `0` disables) so customer-site traffic doesn't reach the database. Creating, updating, or deleting a package in admin clears it.
-
-Booking pricing and timing live in `src/lib/order/atHomeExperience/` (an identical copy sits in the customer site for the live preview). The server never trusts a browser total. Checkout needs `STRIPE_SECRET_KEY`; payment is confirmed by `POST /api/stripe/webhook`.
-
-### Cloudflare R2 image uploads (ASE-11)
-
-Only three env vars:
-
-| Variable | Role |
-| --- | --- |
-| `S3_API_URL` | Bucket address (`endpoint` + `/bucket`) |
-| `CLOUDFLARE_ACCESS_KEY_ID` | R2 S3 access key id |
-| `CLOUDFLARE_ACCESS_KEY` | R2 S3 secret access key |
-
-Do **not** use `CLOUDFLARE_API_TOKEN` for uploads — that is a different Cloudflare credential. Client apps never get R2 keys; they only receive a short-lived `upload_url` from `POST /api/img/upload`.
-
-From `/admin`, use **Run authenticated smoke** after env + migrate are set.
-
-## Branding
-
-Colors, Nickainley display font, logos, and floral imagery follow the marketing site (`aniah-social-events`):
-
-- cream `#FFFCF9`, brown scale, peach accents, green CTAs
-- logos under `public/images/`
-- favicons under `public/favicon/`
 
 ## Scripts
 
@@ -163,30 +186,19 @@ Colors, Nickainley display font, logos, and floral imagery follow the marketing 
 | `npm run lint` | ESLint |
 | `npm run db:migrate` | Create/apply migrations |
 | `npm run db:push` | Push schema without migration files |
-| `npm run db:seed` | Seed lookup rows (ADMIN role) |
+| `npm run db:seed` | Seed lookup rows (ADMIN role, Aniah org, Lemon Tree warehouse) |
 | `npm run db:studio` | Prisma Studio |
 
 ## Project layout
 
 ```
 prisma/          # schema + migrations
-prisma.config.ts # DATABASE_URL for Prisma CLI
 src/
-  app/           # routes: /, /signin, /signup, /admin, /api/*
-  app/api/       # health + me (Bearer → Prisma)
-  components/    # shared UI (e.g. LoadingOverlay)
-  context/       # AuthContextProvider
-  firebase/      # client Auth + Firestore helpers
+  app/           # /, /signin, /admin, /api/*
+  app/api/       # Bearer APIs + /api/public + Stripe webhook
   lib/auth/      # Firebase Admin verify + requirePrismaUser
-  lib/db/        # Prisma singleton, first-login warehouse bootstrap
-  lib/api/       # wisFetch / aseApiFetch (same-origin /api, Bearer ID token)
-  generated/     # Prisma client (gitignored; generated on install)
-public/
-  images/        # ASE logos + floral background
-  fonts/         # Nickainley
-  favicon/
+  lib/db/        # Prisma singleton
+  lib/api/       # wisFetch / aseApiFetch
+  lib/order/     # quotes, public booking, fulfillment
+public/images/   # ASE logos + floral background
 ```
-
-## Constraints
-
-From the project scope: **Time → Budget → Quality**. MVP targets a functional dashboard on free-tier / already available resources; reliability and accurate inventory data outrank visual polish.
